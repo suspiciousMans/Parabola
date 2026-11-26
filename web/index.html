@@ -16,7 +16,7 @@
   window.DUST = { ready: false, errors: [] };
   var Module = {
     canvas: document.getElementById('canvas'),
-    arguments: q.get('autoplay') ? ['--autoplay'] : [],
+    arguments: (q.get('autoplay') ? ['--autoplay'] : []).concat((q.get('args')||'').split(',').filter(Boolean)),
     print: t => console.log(t),
     printErr: t => { console.warn(t); },
     onRuntimeInitialized() { window.DUST.ready = true; document.getElementById('status').remove(); },
