@@ -80,6 +80,8 @@ LAN/online play (the rules wrapper already validates and serialises actions; wir
 networking PR is next), better bots (one heuristic bot today), sound, a rules reference screen, undo, card art.
 
 
+See [docs/STYLE.md](docs/STYLE.md) for the art and UI rules.
+
 ## Rules status (Stage 1)
 
 The rules in `rules/ox/reach.ox` follow the physical game's structure: 24 systems in six clusters
