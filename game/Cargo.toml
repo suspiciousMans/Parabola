@@ -7,7 +7,7 @@ edition = "2021"
 reach_rules = { path = "../rules" }
 # Pinned to the dust-engine branch carrying the web build; move to master (and
 # a release rev) once those PRs merge.
-dust_engine = { git = "https://github.com/suspiciousMans/dust-engine", rev = "d02d2cb366a568dda40746e2eb530dcebe095f84" }
+dust_engine = { git = "https://github.com/suspiciousMans/dust-engine", branch = "master" }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"

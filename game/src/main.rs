@@ -25,30 +25,41 @@ use dust_engine::shader::builtin::{PbrMaterial, PointLight, SceneLighting};
 use dust_engine::shader::{ShaderVariantCache, PBR_MESH_FRAG, PBR_MESH_VERT, TONEMAP_COMPOSITE_FRAG};
 use dust_engine::texture::{GpuTexture, TextureFilter};
 use dust_engine::ui::EguiState;
-use reach_rules::{Action, Event as GameEvent, Phase, State, SYSTEMS};
+use reach_rules::{Action, Phase, Slot, State, SYSTEMS};
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
 
-const RING_R: f32 = 5.3;
+type Ev = [i64; 5];
 
+/// Six clusters in a ring, four systems each: arrow, crescent, hex, gate.
 fn system_pos(i: usize) -> Vec3 {
-    if i == 0 {
-        return Vec3::ZERO;
-    }
-    let a = (i as f32 - 1.0) / 6.0 * TAU + 0.5236; // flat edge toward the camera
-    Vec3::new(a.cos() * RING_R, 0.0, a.sin() * RING_R)
+    let th = (i / 4) as f32 * TAU / 6.0;
+    let (r, da) = match i % 4 {
+        0 => (6.8, -0.28),
+        1 => (4.6, 0.0),
+        2 => (6.8, 0.28),
+        _ => (9.2, 0.0),
+    };
+    let a = th + da;
+    Vec3::new(a.cos() * r, 0.0, a.sin() * r)
 }
 
-fn adjacent(a: usize, b: usize) -> bool {
-    if a == b {
-        return false;
+fn lanes_of(s: &State) -> Vec<(usize, usize)> {
+    let mut v = Vec::new();
+    for a in 0..SYSTEMS {
+        if !s.in_play(a) {
+            continue;
+        }
+        for b in s.neighbors(a) {
+            if a < b {
+                v.push((a, b));
+            }
+        }
     }
-    if a == 0 || b == 0 {
-        return true;
-    }
-    let d = (a + 6 - b) % 6;
-    d == 1 || d == 5
+    v
 }
+
+const PLANET_COLORS: [[u8; 3]; 5] = [[200, 160, 100], [240, 120, 60], [210, 80, 80], [110, 200, 230], [190, 120, 240]];
 
 /// sRGB-ish byte colour to linear for the PBR shader.
 fn lin(c: [u8; 3]) -> [f32; 3] {
@@ -121,7 +132,9 @@ struct Ember {
     bots: [bool; 4],
     truth: State,
     view: State,
-    queue: VecDeque<(GameEvent, State, Action)>,
+    queue: VecDeque<(Ev, State, Action)>,
+    lanes: Vec<(usize, usize)>,
+    static_sys: Vec<Option<usize>>,
     anim: Option<Anim>,
     log: Vec<String>,
     toast: Option<(String, f32)>,
@@ -155,7 +168,7 @@ impl Ember {
     fn new() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let autoplay = args.iter().any(|a| a == "--autoplay");
-        let state = State::new(3, 1);
+        let state = State::new(3, 1, 0);
         let mut lighting = SceneLighting::default();
         lighting.sun_dir = [-0.35, 1.0, 0.45];
         lighting.sun_color = [3.0, 2.75, 2.4];
@@ -182,6 +195,8 @@ impl Ember {
             truth: state.clone(),
             view: state,
             queue: VecDeque::new(),
+            lanes: Vec::new(),
+            static_sys: Vec::new(),
             anim: None,
             log: Vec::new(),
             toast: None,
@@ -202,6 +217,7 @@ impl Ember {
             frame: 0,
             shot_pending: 0,
         };
+        me.lanes = lanes_of(&me.truth);
         if autoplay {
             me.menu.players = 3;
             me.menu.bots = [true; 4];
@@ -216,7 +232,9 @@ impl Ember {
 
     fn start_game(&mut self, seed: u64) {
         self.bots = self.menu.bots;
-        let s = State::new(self.menu.players, seed);
+        let setups = State::setup_count(self.menu.players);
+        let s = State::new(self.menu.players, seed, self.menu.setup % setups);
+        self.lanes = lanes_of(&s);
         self.truth = s.clone();
         self.view = s;
         self.queue.clear();
@@ -255,42 +273,31 @@ impl Ember {
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
         let mut st: Vec<Item> = Vec::new();
         // table and board
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.45, 0.0), Quat::IDENTITY, Vec3::new(40.0, 0.7, 34.0)), material: PbrMaterial { roughness: 0.55, ..PbrMaterial::plastic(lin([60, 38, 26])) }, casts: false });
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.12, 0.0), Quat::IDENTITY, Vec3::new(17.5, 0.3, 15.5)), material: PbrMaterial { roughness: 0.35, metallic: 0.6, ..PbrMaterial::plastic(lin([26, 28, 34])) }, casts: true });
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, Vec3::new(16.4, 0.1, 14.4)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic(lin([14, 18, 40])) }, casts: false });
-        // nebula glow patches on the board
-        for (x, z, r, c) in [(-5.5, 3.0, 2.8, [60u8, 30, 110]), (5.5, -3.2, 3.2, [20, 70, 120]), (0.5, 5.2, 2.0, [110, 40, 70])] {
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.45, 0.0), Quat::IDENTITY, Vec3::new(64.0, 0.7, 56.0)), material: PbrMaterial { roughness: 0.55, ..PbrMaterial::plastic(lin([60, 38, 26])) }, casts: false });
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.12, 0.0), Quat::IDENTITY, Vec3::new(28.0, 0.3, 26.0)), material: PbrMaterial { roughness: 0.35, metallic: 0.6, ..PbrMaterial::plastic(lin([26, 28, 34])) }, casts: true });
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, Vec3::new(26.8, 0.1, 24.8)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic(lin([14, 18, 40])) }, casts: false });
+        for (x, z, r, c) in [(-8.5, 4.5, 4.4, [60u8, 30, 110]), (8.5, -5.0, 5.0, [20, 70, 120]), (0.8, 8.0, 3.2, [110, 40, 70])] {
             st.push(Item { mesh: cyl, model: tr(Vec3::new(x, 0.052, z), Quat::IDENTITY, Vec3::new(r * 2.0, 0.004, r * 2.0)), material: PbrMaterial { roughness: 1.0, emissive: lin(c).map(|v| v * 0.22), ..PbrMaterial::plastic(lin(c).map(|v| v * 0.1)) }, casts: false });
         }
-        // lanes
-        for a in 0..SYSTEMS {
-            for b in (a + 1)..SYSTEMS {
-                if !adjacent(a, b) {
-                    continue;
-                }
-                let (pa, pb) = (system_pos(a), system_pos(b));
-                let d = pb - pa;
-                let len = d.length() - 2.9;
-                let mid = (pa + pb) * 0.5 + Vec3::new(0.0, 0.07, 0.0);
-                let rot = Quat::from_rotation_y(-d.z.atan2(d.x));
-                st.push(Item { mesh: cube, model: tr(mid, rot, Vec3::new(len.max(0.1), 0.012, 0.08)), material: PbrMaterial { emissive: [0.18, 0.5, 0.9], ..PbrMaterial::plastic([0.05, 0.1, 0.2]) }, casts: false });
-            }
-        }
-        // platforms + planets
-        let planet_cols: [[u8; 3]; 7] = [[255, 190, 90], [90, 170, 230], [200, 110, 90], [120, 200, 130], [180, 140, 230], [230, 220, 150], [110, 150, 200]];
+        let mut static_sys: Vec<Option<usize>> = vec![None; st.len()];
+        // systems: planets get a platform and a coloured planet, gates a ring
         for i in 0..SYSTEMS {
             let p = system_pos(i);
-            st.push(Item { mesh: platform.hull, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([150, 150, 165]), 0.4), casts: true });
-            st.push(Item { mesh: platform.team, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([200, 160, 90]), 0.35), casts: true });
-            st.push(Item { mesh: platform.glow, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial { emissive: [0.6, 0.4, 0.15], ..PbrMaterial::plastic([0.2, 0.2, 0.2]) }, casts: false });
-            let a = i as f32 * 2.1 + 0.3;
-            let (pc, off) = (planet_cols[i], Vec3::new(a.cos() * 1.0, 0.0, a.sin() * 1.0));
-            let _ = off;
-            st.push(Item { mesh: sphere, model: tr(p + Vec3::new(-1.35, 0.62, -1.15), Quat::IDENTITY, Vec3::splat(0.34)), material: PbrMaterial { roughness: 0.7, ..PbrMaterial::plastic(lin(pc)) }, casts: true });
-            st.push(Item { mesh: sphere, model: tr(p + Vec3::new(-1.05, 0.38, -1.5), Quat::IDENTITY, Vec3::splat(0.1)), material: PbrMaterial::plastic(lin([200, 200, 205])), casts: true });
+            let first = st.len();
+            if let Some(ty) = State::planet_type(i) {
+                st.push(Item { mesh: platform.hull, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([150, 150, 165]), 0.4), casts: true });
+                st.push(Item { mesh: platform.team, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([200, 160, 90]), 0.35), casts: true });
+                st.push(Item { mesh: platform.glow, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial { emissive: [0.6, 0.4, 0.15], ..PbrMaterial::plastic([0.2, 0.2, 0.2]) }, casts: false });
+                let pc = PLANET_COLORS[ty];
+                st.push(Item { mesh: sphere, model: tr(p + Vec3::new(-1.35, 0.62, -1.15), Quat::IDENTITY, Vec3::splat(0.38)), material: PbrMaterial { roughness: 0.7, emissive: lin(pc).map(|v| v * 0.25), ..PbrMaterial::plastic(lin(pc)) }, casts: true });
+            } else {
+                st.push(Item { mesh: self.ring_mesh, model: tr(p + Vec3::new(0.0, 0.2, 0.0), Quat::IDENTITY, Vec3::splat(1.1)), material: PbrMaterial { emissive: [0.4, 1.6, 2.2], ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+                st.push(Item { mesh: sphere, model: tr(p + Vec3::new(0.0, 0.3, 0.0), Quat::IDENTITY, Vec3::splat(0.22)), material: PbrMaterial { emissive: [0.8, 2.0, 3.0], ..PbrMaterial::plastic([0.2; 3]) }, casts: false });
+            }
+            static_sys.resize(st.len(), Some(i));
+            let _ = first;
         }
-        // hub star
-        st.push(Item { mesh: sphere, model: tr(Vec3::new(0.0, 1.9, 0.0), Quat::IDENTITY, Vec3::splat(0.38)), material: PbrMaterial { emissive: [6.0, 3.6, 1.4], ..PbrMaterial::plastic([1.0, 0.8, 0.4]) }, casts: false });
+        static_sys.resize(st.len(), None);
         // starfield dome (not shadow casting)
         let mut seed = 12345u32;
         let mut rnd = || {
@@ -300,11 +307,13 @@ impl Ember {
         for _ in 0..220 {
             let az = rnd() * TAU;
             let el = 0.05 + rnd() * 1.1;
-            let r = 70.0;
+            let r = 110.0;
             let p = Vec3::new(az.cos() * el.cos() * r, el.sin() * r - 4.0, az.sin() * el.cos() * r);
             let b = 0.6 + rnd() * 2.4;
-            st.push(Item { mesh: sphere, model: tr(p, Quat::IDENTITY, Vec3::splat(0.12 + rnd() * 0.2)), material: PbrMaterial { unlit: true, base_color: [b, b, b * 1.1, 1.0], ..PbrMaterial::default() }, casts: false });
+            st.push(Item { mesh: sphere, model: tr(p, Quat::IDENTITY, Vec3::splat(0.18 + rnd() * 0.3)), material: PbrMaterial { unlit: true, base_color: [b, b, b * 1.1, 1.0], ..PbrMaterial::default() }, casts: false });
         }
+        static_sys.resize(st.len(), None);
+        self.static_sys = static_sys;
         self.statics = st;
         Ok(())
     }
@@ -334,32 +343,32 @@ impl Ember {
         matches!(self.screen, Screen::Play) && !self.truth.is_over() && !self.bots[self.truth.current()]
     }
 
-    fn start_anim(&mut self, ev: GameEvent, after: State, _a: Action) {
+    fn start_anim(&mut self, ev: Ev, after: State, _a: Action) {
         let mut fx = Fx::None;
         let mut dur = 0.18;
         let mut at_end = false;
-        match ev {
-            GameEvent::Moved { from, to, ships, player } => {
-                fx = Fx::Fly { from: from as usize, to: to as usize, n: ships as usize, player: player as usize };
+        match ev[0] {
+            12 => {
+                fx = Fx::Fly { from: ev[2] as usize, to: ev[3] as usize, n: ev[4] as usize, player: ev[1] as usize };
                 dur = 0.55;
                 at_end = true;
             }
-            GameEvent::Fought { system, .. } => {
-                fx = Fx::Battle { system: system as usize };
+            14 => {
+                fx = Fx::Battle { system: ev[2] as usize };
                 dur = 0.8;
                 at_end = true;
             }
-            GameEvent::Built { system, .. } => {
-                fx = Fx::Rise { system: system as usize };
-                self.city_rise[system as usize] = self.clock;
+            9 => {
+                fx = Fx::Rise { system: ev[2] as usize };
+                self.city_rise[ev[2] as usize] = self.clock;
                 dur = 0.5;
             }
-            GameEvent::TrickWon { .. } | GameEvent::RoundScored { .. } => dur = 0.9,
+            20 | 21 => dur = 0.9,
             _ => {}
         }
         if let Some(line) = ui::describe(ev, &ui::NAMES) {
             self.log.push(line.clone());
-            if matches!(ev, GameEvent::TrickWon { .. } | GameEvent::RoundScored { .. } | GameEvent::Fought { .. }) {
+            if matches!(ev[0], 14 | 20 | 21) {
                 self.toast = Some((line, 2.2));
             }
         }
@@ -385,16 +394,48 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [2.6, 1.5, 0.5], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
-        // cities
+        // lanes
+        for &(a, b) in &self.lanes {
+            let (pa, pb) = (system_pos(a), system_pos(b));
+            let d = pb - pa;
+            let len = d.length() - 2.9;
+            let mid = (pa + pb) * 0.5 + Vec3::new(0.0, 0.07, 0.0);
+            let rot = Quat::from_rotation_y(-d.z.atan2(d.x));
+            out.push(Item { mesh: self.bar_mesh, model: tr(mid, rot, Vec3::new(len.max(0.1), 0.012, 0.08)), material: PbrMaterial { emissive: [0.18, 0.5, 0.9], ..PbrMaterial::plastic([0.05, 0.1, 0.2]) }, casts: false });
+        }
+        // buildings
         for sys in 0..SYSTEMS {
-            if let Some(owner) = s.city(sys) {
+            if !s.in_play(sys) {
+                continue;
+            }
+            for sl in 0..2 {
+                let off = Vec3::new(if sl == 0 { -0.45 } else { 0.45 }, 0.1, 0.0);
                 let age = self.clock - self.city_rise[sys];
                 let k = if age < 0.6 { (age / 0.6).clamp(0.02, 1.0) } else { 1.0 };
                 let k = 1.0 - (1.0 - k).powi(3);
-                let m = tr(system_pos(sys) + Vec3::new(0.0, 0.1, 0.0), Quat::IDENTITY, Vec3::new(1.35, 1.35 * k, 1.35));
-                out.push(Item { mesh: self.city.team, model: m, material: team_mat(owner), casts: true });
-                out.push(Item { mesh: self.city.hull, model: m, material: hull_mat, casts: true });
-                out.push(Item { mesh: self.city.glow, model: m, material: city_glow, casts: false });
+                match s.slot(sys, sl) {
+                    Slot::City { owner, damaged } => {
+                        let m = tr(system_pos(sys) + off, Quat::IDENTITY, Vec3::new(0.95, 0.95 * k, 0.95));
+                        let mut tm = team_mat(owner);
+                        if damaged {
+                            tm.base_color = tm.base_color.map(|v| v * 0.35);
+                        }
+                        out.push(Item { mesh: self.city.team, model: m, material: tm, casts: true });
+                        out.push(Item { mesh: self.city.hull, model: m, material: hull_mat, casts: true });
+                        if !damaged {
+                            out.push(Item { mesh: self.city.glow, model: m, material: city_glow, casts: false });
+                        }
+                    }
+                    Slot::Starport { owner, damaged } => {
+                        let m = tr(system_pos(sys) + off - Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::new(0.6, 0.35 * k, 0.6));
+                        let mut tm = team_mat(owner);
+                        if damaged {
+                            tm.base_color = tm.base_color.map(|v| v * 0.35);
+                        }
+                        out.push(Item { mesh: self.bar_mesh, model: m, material: tm, casts: true });
+                    }
+                    Slot::Empty => {}
+                }
             }
         }
         // ships at rest
@@ -406,7 +447,7 @@ impl Ember {
         };
         for sys in 0..SYSTEMS {
             for p in 0..n {
-                let cnt = s.ships(sys, p) as usize;
+                let cnt = s.ship_count(sys, p) as usize;
                 for i in 0..cnt {
                     let (pos, heading) = ship_slot(sys, p, i, cnt);
                     ship_item(pos, heading, p, 1.0, bob(sys * 8 + p * 3 + i), true);
@@ -417,8 +458,8 @@ impl Ember {
         if let Some(Anim { fx: Fx::Fly { from, to, n: fl, player }, t, dur, .. }) = &self.anim {
             let k = (t / dur).clamp(0.0, 1.0);
             let e = k * k * (3.0 - 2.0 * k);
-            let src_cnt = s.ships(*from, *player) as usize;
-            let dst_cnt = s.ships(*to, *player) as usize + *fl;
+            let src_cnt = s.ship_count(*from, *player) as usize;
+            let dst_cnt = s.ship_count(*to, *player) as usize + *fl;
             for i in 0..*fl {
                 let (a, _) = ship_slot(*from, *player, src_cnt - i.min(src_cnt.saturating_sub(1)), src_cnt + *fl);
                 let (b, _) = ship_slot(*to, *player, dst_cnt - 1 - i, dst_cnt);
@@ -464,7 +505,7 @@ impl Ember {
             let cur = s.current();
             let pulse = 0.5 + 0.5 * (self.clock * 3.0).sin();
             for sys in 0..SYSTEMS {
-                if s.city(sys) == Some(cur) {
+                if (0..2).any(|sl| matches!(s.slot(sys, sl), Slot::City { owner, .. } | Slot::Starport { owner, .. } if owner == cur)) {
                     let c = lin(ui::COLORS_UI[cur]);
                     out.push(Item { mesh: self.ring_mesh, model: tr(system_pos(sys) + Vec3::new(0.0, 0.14, 0.0), Quat::IDENTITY, Vec3::splat(0.92)), material: PbrMaterial { emissive: c.map(|v| v * (1.0 + pulse * 2.5)), ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
                 }
@@ -596,15 +637,16 @@ impl Game for Ember {
         let gl = ctx.gl_arc();
         let gl = &*gl;
         let dynamic = self.draw_items();
+        let view_state_play: Vec<bool> = (0..SYSTEMS).map(|y| self.view.in_play(y)).collect();
         let renderer = self.renderer.as_mut().unwrap();
         renderer.resize_if_needed(gl, size)?;
         let view = self.camera.cam.view_matrix();
         let proj = self.camera.cam.projection_matrix(aspect);
         let sun = Vec3::from(self.lighting.sun_dir).normalize();
 
-        let bounds = ShadowBounds::Aabb { min: Vec3::new(-10.0, -1.0, -9.0), max: Vec3::new(10.0, 3.0, 9.0) };
+        let bounds = ShadowBounds::Aabb { min: Vec3::new(-15.0, -1.0, -14.0), max: Vec3::new(15.0, 3.0, 14.0) };
         if renderer.begin_shadow_pass(gl, sun, &bounds) {
-            for it in self.statics.iter().chain(dynamic.iter()).filter(|i| i.casts) {
+            for it in self.statics.iter().zip(&self.static_sys).filter(|(_, sy)| sy.is_none_or(|y| view_state_play[y])).map(|(i, _)| i).chain(dynamic.iter()).filter(|i| i.casts) {
                 renderer.shadow_draw(gl, &it.model, &self.meshes[it.mesh]);
             }
             renderer.end_shadow_pass(gl);
@@ -625,7 +667,7 @@ impl Game for Ember {
             gl.uniform_matrix_4_f32_slice(loc("uProj").as_ref(), false, &proj.to_cols_array());
         }
         let white = self.white.as_ref().unwrap().handle;
-        for it in self.statics.iter().chain(dynamic.iter()) {
+        for it in self.statics.iter().zip(&self.static_sys).filter(|(_, sy)| sy.is_none_or(|y| view_state_play[y])).map(|(i, _)| i).chain(dynamic.iter()) {
             let mat = PbrMaterial { base_texture: Some(white), ..it.material };
             mat.upload(gl, program);
             unsafe {

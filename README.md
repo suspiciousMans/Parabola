@@ -78,3 +78,18 @@ on Linux) and saves a frame.
 
 LAN/online play (the rules wrapper already validates and serialises actions; wiring it to the Dust turn-based
 networking PR is next), better bots (one heuristic bot today), sound, a rules reference screen, undo, card art.
+
+
+## Rules status (Stage 1)
+
+The rules in `rules/ox/reach.ox` follow the physical game's structure: 24 systems in six clusters
+(planet types, gates, out-of-play clusters for 2/3 players), the 12 setup cards, 4-suit card play
+(Lead, Surpass, Copy, Pivot, Seize, Pass), ambitions with ranked markers, resources and the prelude,
+tax/build/move/repair/battle with dice, outrage, trophies and captives, chapters and power goals.
+
+Interpretations not yet checked against the rulebook (please verify): Pivot gives one action of the played
+card's suit; repair fixes one piece; builds cost no resources; the lead passing ends the chapter; ambition
+marker ranks follow declaration order; ties for first share the second value; destroyed ships are lost;
+the intercept round; catapult moves along any-length paths; seat roles A/B/C on the setup cards.
+
+Deferred: Court, Influence, Secure, Guild and Vox cards, leaders, lore, ambition city bonuses, online play.

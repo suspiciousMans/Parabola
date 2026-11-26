@@ -1,66 +1,73 @@
-// Ember Reach: rules.
+// Ember Reach rules, stage 1: map, pieces, setup, rounds, actions, battle,
+// ambitions. A faithful adaptation of the published rules for PRIVATE play:
+// see data.ox for the transcribed tables (marked UNVERIFIED) and README for
+// the interpretations still to be checked against the physical game.
 //
-// Pure, deterministic game logic. The host (Rust) holds the state as a flat
-// List of Ints and an action as a short List of Ints, so state and actions are
-// trivially serialisable (save files, network) and identical on every peer.
-// Every random roll draws from an LCG stored in the state itself.
+// The whole game state is a flat List of Ints and an action is a short List
+// of Ints, so both are trivially serialisable (saves, network) and identical
+// on every peer. Randomness comes from an LCG stored in the state.
 //
-// Round: each player is dealt 6 action cards. A trick is led by whoever holds
-// the initiative: the lead plays a card and takes 2 actions of that suit;
-// each following player must play the lead suit if they can (1 action), or,
-// holding none, may pivot with any card (1 action of the card's own suit).
-// Highest card of the lead suit wins the trick: +1 power and the lead next.
-// After 6 tricks the round's ambition is scored, cities pay income, repeat.
-// Three rounds; most victory points wins.
-//
-// Suits: 0 Move, 1 Fight, 2 Build, 3 Influence.
-// Actions ([kind, a, b]):
-//   0 play card [0, card, 0]        1 move   [1, from, to]  (up to 2 ships)
-//   2 fight [2, system, enemy]      3 build  [3, system, 0] (city, 2 power)
-//   4 levy  [4, system, 0] (1 power: 2 ships from pool to your city)
-//   5 sway  [5, 0, 0] (+2 power)    6 end turn [6, 0, 0]
-//   7 tax   [7, 0, 0] (+1 power per city you own)
+// Not in stage 1: Court cards (Influence, Secure, Guild/Vox effects), leaders,
+// lore, the +2/+5 city bonuses of ambitions.
+
+import "data.ox"
 
 // ---- layout -------------------------------------------------------------
-
+fn n_sys() -> Int { return 24 }
 fn h_n() -> Int { return 0 }
-fn h_round() -> Int { return 1 }
-fn h_phase() -> Int { return 2 }      // 0 lead a card, 1 follow, 2 act, 3 game over
+fn h_chapter() -> Int { return 1 }
+fn h_phase() -> Int { return 2 }      // 0 lead, 1 follow, 2 act, 4 game over
 fn h_cur() -> Int { return 3 }
-fn h_lead_suit() -> Int { return 5 }
-fn h_acts() -> Int { return 6 }
-fn h_asuit() -> Int { return 7 }
-fn h_rng() -> Int { return 8 }
-fn h_played() -> Int { return 9 }
-fn h_best_rank() -> Int { return 10 }
-fn h_best_player() -> Int { return 11 }
-fn h_init() -> Int { return 12 }
-fn h_ev() -> Int { return 14 }        // last event: kind, a, b, c, d (14..18)
-fn p_base() -> Int { return 20 }
-fn p_stride() -> Int { return 6 }
-fn ships_base() -> Int { return 44 }
-fn city_base() -> Int { return 72 }
-fn state_len() -> Int { return 79 }
-fn systems() -> Int { return 7 }
-fn max_cities() -> Int { return 4 }
-fn total_rounds() -> Int { return 3 }
+fn h_init() -> Int { return 4 }
+fn h_rng() -> Int { return 5 }
+fn h_lead_suit() -> Int { return 6 }
+fn h_best_num() -> Int { return 7 }
+fn h_best_player() -> Int { return 8 }
+fn h_seized() -> Int { return 9 }
+fn h_turns() -> Int { return 10 }
+fn h_acts() -> Int { return 11 }
+fn h_act_suit() -> Int { return 12 }
+fn h_x_build() -> Int { return 14 }
+fn h_x_move() -> Int { return 15 }
+fn h_x_battle() -> Int { return 16 }
+fn h_x_lead() -> Int { return 17 }
+fn h_acted() -> Int { return 18 }
+fn h_out() -> Int { return 20 }       // bitmask of clusters out of play
+fn h_amb() -> Int { return 22 }       // 5 entries: declaration rank 1..3, 0 = none
+fn h_amb_count() -> Int { return 27 }
+fn h_ev() -> Int { return 30 }        // last event: kind, a..e
+fn p_base() -> Int { return 40 }
+fn p_stride() -> Int { return 20 }
+fn ships_base() -> Int { return 120 }
+fn slots_base() -> Int { return 312 }
+fn supply_base() -> Int { return 456 }
+fn state_len() -> Int { return 461 }
 
-fn pf(s, p, f) { return s[p_base() + p * p_stride() + f] }
-fn vp(s, p) { return pf(s, p, 0) }
-fn power(s, p) { return pf(s, p, 1) }
-fn pool(s, p) { return pf(s, p, 2) }
-fn hand(s, p) { return pf(s, p, 3) }
-fn ships(s, sys, p) { return s[ships_base() + sys * 4 + p] }
-fn city(s, sys) { return s[city_base() + sys] }
+fn pb(p) { return p_base() + p_stride() * p }
+fn power(s, p) { return s[pb(p)] }
+fn res(s, p, t) { return s[pb(p) + 1 + t] }
+fn cities_left(s, p) { return s[pb(p) + 6] }
+fn ports_left(s, p) { return s[pb(p) + 7] }
+fn reserve(s, p) { return s[pb(p) + 8] }
+fn trophies(s, p) { return s[pb(p) + 9] }
+fn captives(s, p) { return s[pb(p) + 10] }
+fn hand(s, p) { return s[pb(p) + 11] }
+fn outraged(s, p, t) { return (s[pb(p) + 13] / pow2(t)) % 2 == 1 }
+fn supply(s, t) { return s[supply_base() + t] }
 fn phase(s) { return s[h_phase()] }
 fn cur(s) { return s[h_cur()] }
 fn nplayers(s) { return s[h_n()] }
-fn round(s) { return s[h_round()] }
+fn chapter(s) { return s[h_chapter()] }
 fn acts(s) { return s[h_acts()] }
 
-fn card_suit(c) { return c / 7 }
-fn card_rank(c) { return c % 7 + 1 }
-fn has_card(mask, c) { return (mask / pow2(c)) % 2 == 1 }
+fn ship_i(sys, p, d) { return ships_base() + sys * 8 + p * 2 + d }
+fn fresh(s, sys, p) { return s[ship_i(sys, p, 0)] }
+fn damaged(s, sys, p) { return s[ship_i(sys, p, 1)] }
+fn all_ships(s, sys, p) { return fresh(s, sys, p) + damaged(s, sys, p) }
+fn slot_i(sys, sl) { return slots_base() + sys * 6 + sl * 3 }
+fn slot_owner(s, sys, sl) { return s[slot_i(sys, sl)] }
+fn slot_kind(s, sys, sl) { return s[slot_i(sys, sl) + 1] }     // 0 empty, 1 city, 2 starport
+fn slot_dmg(s, sys, sl) { return s[slot_i(sys, sl) + 2] }
 
 fn pow2(n) {
     let r = 1
@@ -72,44 +79,91 @@ fn pow2(n) {
     return r
 }
 
+fn card_suit(c) { return c / 7 }
+fn card_num(c) { return c % 7 + 1 }
+fn has_card(mask, c) { return (mask / pow2(c)) % 2 == 1 }
+fn min_i(a, b) { if a < b { return a } return b }
+fn max_i(a, b) { if a > b { return a } return b }
+
 // ---- map ----------------------------------------------------------------
+fn cluster_of(sys) { return sys / 4 }
+fn kind_of(sys) { return sys % 4 }
+fn is_gate(sys) { return sys % 4 == 3 }
+fn gate_of(c) { return c * 4 + 3 }
+fn cluster_out(s, c) { return (s[h_out()] / pow2(c)) % 2 == 1 }
+fn in_play(s, sys) { return !cluster_out(s, cluster_of(sys)) }
 
-// System 0 is the hub, 1..6 a ring around it.
-fn adjacent(a, b) {
+// Next cluster in play going `dir` (+1/-1) around the ring.
+fn next_cluster(s, c, dir) {
+    let k = (c + dir + 6) % 6
+    let guard = 0
+    while cluster_out(s, k) && guard < 6 {
+        k = (k + dir + 6) % 6
+        guard = guard + 1
+    }
+    return k
+}
+
+fn adjacent(s, a, b) {
     if a == b { return false }
-    if a == 0 || b == 0 { return true }
-    let d = (a - b + 6) % 6
-    return d == 1 || d == 5
+    if !in_play(s, a) || !in_play(s, b) { return false }
+    let ca = cluster_of(a)
+    let cb = cluster_of(b)
+    if ca == cb {
+        if is_gate(a) || is_gate(b) { return true }
+        let ka = kind_of(a)
+        let kb = kind_of(b)
+        return (ka == 0 && kb == 1) || (ka == 1 && kb == 0) || (ka == 1 && kb == 2) || (ka == 2 && kb == 1)
+    }
+    if is_gate(a) && is_gate(b) {
+        return next_cluster(s, ca, 1) == cb || next_cluster(s, ca, -1) == cb
+    }
+    // cross-cluster planet links: 2-hex <-> 3-arrow, 5-hex <-> 6-arrow
+    if (a == 6 && b == 8) || (a == 8 && b == 6) { return true }
+    if (a == 18 && b == 20) || (a == 20 && b == 18) { return true }
+    return false
 }
 
-fn start_system(n, p) {
-    if n == 2 { return [1, 4][p] }
-    if n == 3 { return [1, 3, 5][p] }
-    return [1, 3, 4, 6][p]
+fn neighbors(s, a) {
+    let out = []
+    for b in range(0, n_sys()) {
+        if adjacent(s, a, b) { out = push(out, b) }
+    }
+    return out
 }
 
-fn count_cities(s, p) {
+// ---- pieces, control ----------------------------------------------------
+fn count_buildings(s, sys, p) {
     let c = 0
-    for sys in range(0, systems()) {
-        if city(s, sys) == p { c = c + 1 }
+    for sl in range(0, 2) {
+        if slot_kind(s, sys, sl) != 0 && slot_owner(s, sys, sl) == p { c = c + 1 }
     }
     return c
 }
 
-fn total_ships(s, p) {
+fn buildings_anywhere(s, p) {
     let c = 0
-    for sys in range(0, systems()) { c = c + ships(s, sys, p) }
+    for sys in range(0, n_sys()) { c = c + count_buildings(s, sys, p) }
     return c
 }
 
-// The player with strictly the most ships (a city counts as one), or -1.
+fn count_kind(s, sys, p, kind, dmg) {
+    let c = 0
+    for sl in range(0, 2) {
+        if slot_kind(s, sys, sl) == kind && slot_owner(s, sys, sl) == p && slot_dmg(s, sys, sl) == dmg { c = c + 1 }
+    }
+    return c
+}
+
+fn has_piece(s, sys, p) { return all_ships(s, sys, p) > 0 || count_buildings(s, sys, p) > 0 }
+
+// Player with strictly the most fresh ships in the system, or -1.
 fn controller(s, sys) {
     let best = -1
     let best_v = 0
     let tie = false
     for p in range(0, nplayers(s)) {
-        let v = ships(s, sys, p)
-        if city(s, sys) == p { v = v + 1 }
+        let v = fresh(s, sys, p)
         if v > best_v {
             best_v = v
             best = p
@@ -122,83 +176,138 @@ fn controller(s, sys) {
     return best
 }
 
-fn count_controlled(s, p) {
-    let c = 0
-    for sys in range(0, systems()) {
-        if controller(s, sys) == p { c = c + 1 }
+fn free_slot(s, sys) {
+    for sl in range(0, planet_slots(sys)) {
+        if slot_kind(s, sys, sl) == 0 { return sl }
     }
+    return -1
+}
+
+fn total_resources(s, p) {
+    let c = 0
+    for t in range(0, 5) { c = c + res(s, p, t) }
     return c
 }
 
 // ---- randomness ---------------------------------------------------------
-
 fn rng_step(r) { return (r * 1103515245 + 12345) % 2147483648 }
 fn rng_val(r) { return r / 65536 }
-
-// Returns the state with the generator advanced; read the draw back with rng_val(s[h_rng()]).
 fn draw(s) {
     let t = s
     t[h_rng()] = rng_step(s[h_rng()])
     return t
 }
-
-fn roll_d6(s) { return rng_val(s[h_rng()]) % 6 + 1 }
+fn roll_d6(s) { return rng_val(s[h_rng()]) % 6 }
 
 // ---- setup --------------------------------------------------------------
-
-fn new_game(n, seed) {
+fn new_game(n, seed, setup_idx) {
     let s = []
     for i in range(0, state_len()) { s = push(s, 0) }
     s[h_n()] = n
-    s[h_round()] = 1
+    s[h_chapter()] = 1
     s[h_rng()] = seed % 2147483648
-    for sys in range(0, systems()) { s[city_base() + sys] = -1 }
-    for p in range(0, n) {
-        let b = p_base() + p * p_stride()
-        s[b + 1] = 3     // power
-        s[b + 2] = 9     // pool
-        s[b + 4] = -1
-        let home = start_system(n, p)
-        s[ships_base() + home * 4 + p] = 3
-        s[city_base() + home] = p
+    let outs = setup_out(n, setup_idx % setup_count(n))
+    let mask = 0
+    for c in outs { mask = mask + pow2(c) }
+    s[h_out()] = mask
+    s[h_seized()] = -1
+    s[h_lead_suit()] = -1
+    for t in range(0, 5) { s[supply_base() + t] = 5 }
+    for sys in range(0, n_sys()) {
+        for sl in range(0, 2) { s[slot_i(sys, sl)] = -1 }
     }
-    s[h_init()] = 0
-    return deal(s)
+    for p in range(0, n) {
+        let b = pb(p)
+        s[b + 6] = 5
+        s[b + 7] = 5
+        s[b + 8] = 15
+        s[b + 14] = -1
+        let seat = setup_seat(n, setup_idx % setup_count(n), p)
+        let a = seat[0]
+        let bb = seat[1]
+        // A: 3 ships + city, B: 3 ships + starport, C: 2 ships in each remaining system
+        s[ship_i(a, p, 0)] = s[ship_i(a, p, 0)] + 3
+        s[slot_i(a, 0)] = p
+        s[slot_i(a, 0) + 1] = 1
+        s[b + 6] = s[b + 6] - 1
+        s[ship_i(bb, p, 0)] = s[ship_i(bb, p, 0)] + 3
+        s[slot_i(bb, 0)] = p
+        s[slot_i(bb, 0) + 1] = 2
+        s[b + 7] = s[b + 7] - 1
+        s[b + 8] = s[b + 8] - 6
+        for k in range(2, len(seat)) {
+            s[ship_i(seat[k], p, 0)] = s[ship_i(seat[k], p, 0)] + 2
+            s[b + 8] = s[b + 8] - 2
+        }
+        for sysd in [a, bb] {
+            let t = planet_type(sysd)
+            s[b + 1 + t] = s[b + 1 + t] + 1
+            s[supply_base() + t] = s[supply_base() + t] - 1
+        }
+    }
+    s = shuffle_init(s)
+    return deal_chapter(s)
 }
 
-fn deal(s) {
+// Random starting initiative.
+fn shuffle_init(s) {
+    let t = draw(s)
+    t[h_init()] = rng_val(t[h_rng()]) % nplayers(t)
+    return t
+}
+
+fn deck_size(n) { if n == 4 { return 28 } return 20 }
+
+// Fresh shuffled deck (cards 2-6, plus 1s and 7s with 4 players), 6 cards each.
+fn deal_chapter(s) {
     let t = s
-    let deck = range(0, 28)
-    let i = 27
+    let ids = []
+    for c in range(0, 28) {
+        let num = card_num(c)
+        if nplayers(t) == 4 || (num >= 2 && num <= 6) { ids = push(ids, c) }
+    }
+    let i = len(ids) - 1
     while i > 0 {
         t = draw(t)
         let j = rng_val(t[h_rng()]) % (i + 1)
-        let tmp = deck[i]
-        deck[i] = deck[j]
-        deck[j] = tmp
+        let tmp = ids[i]
+        ids[i] = ids[j]
+        ids[j] = tmp
         i = i - 1
     }
     let k = 0
     for p in range(0, nplayers(t)) {
         let mask = 0
         for m in range(0, 6) {
-            mask = mask + pow2(deck[k])
+            mask = mask + pow2(ids[k])
             k = k + 1
         }
-        t[p_base() + p * p_stride() + 3] = mask
-        t[p_base() + p * p_stride() + 4] = -1
+        t[pb(p) + 11] = mask
+        t[pb(p) + 14] = -1
     }
+    t[h_cur()] = t[h_init()]
+    return start_round(t)
+}
+
+fn start_round(s) {
+    let t = s
     t[h_phase()] = 0
     t[h_cur()] = t[h_init()]
     t[h_lead_suit()] = -1
-    t[h_played()] = 0
-    t[h_best_rank()] = 0
+    t[h_best_num()] = 0
+    t[h_best_player()] = -1
+    t[h_seized()] = -1
+    t[h_turns()] = 0
     t[h_acts()] = 0
+    t[h_x_build()] = 0
+    t[h_x_move()] = 0
+    t[h_x_battle()] = 0
+    t[h_x_lead()] = 0
+    t[h_acted()] = 0
     return t
 }
 
 // ---- legal actions ------------------------------------------------------
-
 fn cards_in_hand(s, p) {
     let out = []
     let mask = hand(s, p)
@@ -208,39 +317,52 @@ fn cards_in_hand(s, p) {
     return out
 }
 
-fn action_actions(s, suit) {
-    let p = cur(s)
-    let out = []
-    if suit == 0 {
-        for from in range(0, systems()) {
-            if ships(s, from, p) > 0 {
-                for to in range(0, systems()) {
-                    if adjacent(from, to) { out = push(out, [1, from, to]) }
-                }
-            }
+fn amb_declared(s, a) { return s[h_amb() + a] > 0 }
+
+// Ambition types a lead card of this number may declare (-1 alone = none).
+fn ambition_options(s, num) {
+    let out = [-1]
+    if s[h_amb_count()] >= 3 { return out }
+    if num >= 2 && num <= 6 {
+        if !amb_declared(s, num - 2) { out = push(out, num - 2) }
+    }
+    if num == 7 {
+        for a in range(0, 5) {
+            if !amb_declared(s, a) { out = push(out, a) }
         }
-    } else if suit == 1 {
-        for sys in range(0, systems()) {
-            if ships(s, sys, p) > 0 {
-                for e in range(0, nplayers(s)) {
-                    if e != p && ships(s, sys, e) > 0 { out = push(out, [2, sys, e]) }
-                }
-            }
-        }
-    } else if suit == 2 {
-        for sys in range(0, systems()) {
-            if ships(s, sys, p) > 0 && city(s, sys) == -1 && power(s, p) >= 2 && count_cities(s, p) < max_cities() {
-                out = push(out, [3, sys, 0])
-            }
-            if city(s, sys) == p && power(s, p) >= 1 && pool(s, p) >= 1 {
-                out = push(out, [4, sys, 0])
-            }
-        }
-    } else {
-        out = push(out, [5, 0, 0])
-        if count_cities(s, p) > 0 { out = push(out, [7, 0, 0]) }
     }
     return out
+}
+
+// Which action kinds the suit's actions cover (Court actions come later).
+fn suit_allows(suit, kind) {
+    if suit == 0 { return kind == 8 || kind == 13 }           // Administration: tax, repair
+    if suit == 1 { return kind == 14 || kind == 12 }          // Aggression: battle, move
+    if suit == 2 { return kind == 9 || kind == 10 || kind == 11 || kind == 13 }  // Construction: build, repair
+    return kind == 12                                          // Mobilization: move
+}
+
+fn kind_group(kind) {
+    if kind == 9 || kind == 10 || kind == 11 || kind == 13 { return 0 }   // build / repair
+    if kind == 12 { return 1 }
+    if kind == 14 { return 2 }
+    return 3
+}
+
+// Is this action kind available right now, and through which source?
+// 1 = suit pip, 2 = prelude extra, 0 = not available.
+fn source_for(s, kind) {
+    if acts(s) > 0 && suit_allows(s[h_act_suit()], kind) { return 1 }
+    let g = kind_group(kind)
+    if g == 0 && s[h_x_build()] > 0 { return 2 }
+    if g == 1 && s[h_x_move()] > 0 { return 2 }
+    if g == 2 && s[h_x_battle()] > 0 { return 2 }
+    if s[h_x_lead()] > 0 && suit_allows(s[h_lead_suit()], kind) { return 2 }
+    return 0
+}
+
+fn can_spend(s, p, t) {
+    return res(s, p, t) > 0 && !outraged(s, p, t)
 }
 
 fn legal_actions(s) {
@@ -248,23 +370,153 @@ fn legal_actions(s) {
     let ph = phase(s)
     let p = cur(s)
     if ph == 0 {
-        for c in cards_in_hand(s, p) { out = push(out, [0, c, 0]) }
-    } else if ph == 1 {
-        let cards = cards_in_hand(s, p)
-        let follow = []
-        for c in cards {
-            if card_suit(c) == s[h_lead_suit()] { follow = push(follow, c) }
+        for c in cards_in_hand(s, p) {
+            for a in ambition_options(s, card_num(c)) { out = push(out, [0, c, a, 0]) }
         }
-        if len(follow) > 0 { cards = follow }
-        for c in cards { out = push(out, [0, c, 0]) }
+        out = push(out, [4, 0, 0, 0])
+    } else if ph == 1 {
+        let ls = s[h_lead_suit()]
+        let cards = cards_in_hand(s, p)
+        for c in cards {
+            if card_suit(c) == ls {
+                if card_num(c) > s[h_best_num()] { out = push(out, [1, c, 0, 0]) }
+            } else {
+                out = push(out, [3, c, 0, 0])
+            }
+            out = push(out, [2, c, 0, 0])
+        }
+        if s[h_seized()] == -1 && len(cards) >= 2 {
+            for c in cards { out = push(out, [5, c, 0, 0]) }
+        }
+        out = push(out, [4, 0, 0, 0])
     } else if ph == 2 {
-        out = action_actions(s, s[h_asuit()])
-        out = push(out, [6, 0, 0])
+        if s[h_acted()] == 0 {
+            // Prelude: spend a resource for an extra action (Relics wait for the Court).
+            for t in [0, 1, 2, 4] {
+                if can_spend(s, p, t) { out = push(out, [6, t, 0, 0]) }
+            }
+        }
+        for x in action_list(s) { out = push(out, x) }
+        out = push(out, [7, 0, 0, 0])
     }
     return out
 }
 
-fn same_action(a, b) { return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] }
+fn action_list(s) {
+    let p = cur(s)
+    let out = []
+    let n = nplayers(s)
+    // Tax
+    if source_for(s, 8) > 0 {
+        for sys in range(0, n_sys()) {
+            if !is_gate(sys) && supply(s, planet_type(sys)) > 0 {
+                let mine = false
+                for sl in range(0, 2) {
+                    if slot_kind(s, sys, sl) == 1 && slot_owner(s, sys, sl) == p { mine = true }
+                    if slot_kind(s, sys, sl) == 1 && slot_owner(s, sys, sl) != p && controller(s, sys) == p { mine = true }
+                }
+                if mine { out = push(out, [8, sys, 0, 0]) }
+            }
+        }
+    }
+    // Build
+    let b_city = source_for(s, 9)
+    if b_city > 0 {
+        for sys in range(0, n_sys()) {
+            if in_play(s, sys) && !is_gate(sys) && has_piece(s, sys, p) {
+                let sl = free_slot(s, sys)
+                if sl >= 0 {
+                    if cities_left(s, p) > 0 { out = push(out, [9, sys, sl, 0]) }
+                    if ports_left(s, p) > 0 { out = push(out, [10, sys, sl, 0]) }
+                }
+            }
+            if count_kind(s, sys, p, 2, 0) > 0 && reserve(s, p) > 0 { out = push(out, [11, sys, 0, 0]) }
+        }
+    }
+    // Repair: one damaged piece
+    if source_for(s, 13) > 0 {
+        for sys in range(0, n_sys()) {
+            if damaged(s, sys, p) > 0 { out = push(out, [13, sys, 0, 0]) }
+            for sl in range(0, 2) {
+                if slot_kind(s, sys, sl) != 0 && slot_owner(s, sys, sl) == p && slot_dmg(s, sys, sl) == 1 {
+                    out = push(out, [13, sys, sl + 1, 0])
+                }
+            }
+        }
+    }
+    // Move
+    if source_for(s, 12) > 0 {
+        for from in range(0, n_sys()) {
+            let total = all_ships(s, from, p)
+            if total > 0 {
+                let dests = move_targets(s, from, p)
+                for to in dests {
+                    for cnt in range(1, total + 1) { out = push(out, [12, from, to, cnt]) }
+                }
+            }
+        }
+    }
+    // Battle
+    if source_for(s, 14) > 0 {
+        for sys in range(0, n_sys()) {
+            let ships = all_ships(s, sys, p)
+            if ships > 0 {
+                for e in range(0, n) {
+                    if e != p && has_piece(s, sys, e) {
+                        for x in battle_options(s, sys, e, ships) { out = push(out, x) }
+                    }
+                }
+            }
+        }
+    }
+    return out
+}
+
+// Adjacent systems, or every system reachable by path from a Loyal starport (catapult).
+fn move_targets(s, from, p) {
+    let catapult = count_kind(s, from, p, 2, 0) > 0
+    if !catapult { return neighbors(s, from) }
+    let seen = []
+    for i in range(0, n_sys()) { seen = push(seen, 0) }
+    seen[from] = 1
+    let frontier = [from]
+    let out = []
+    while len(frontier) > 0 {
+        let next = []
+        for a in frontier {
+            for b in neighbors(s, a) {
+                if seen[b] == 0 {
+                    seen[b] = 1
+                    next = push(next, b)
+                    out = push(out, b)
+                }
+            }
+        }
+        frontier = next
+    }
+    return out
+}
+
+fn pack_dice(a, k, r) { return a * 49 + k * 7 + r }
+
+fn battle_options(s, sys, e, ships) {
+    let out = []
+    let n = min_i(ships, 18)
+    let raid_ok = count_buildings(s, sys, e) > 0 || buildings_anywhere(s, e) == 0
+    for a in range(0, 7) {
+        for k in range(0, 7) {
+            let r = n - a - k
+            if r >= 0 && r <= 6 {
+                if r == 0 || raid_ok { out = push(out, [14, sys, e, pack_dice(a, k, r)]) }
+            }
+        }
+    }
+    return out
+}
+
+fn same_action(a, b) {
+    return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3]
+}
 
 fn is_legal(s, a) {
     for x in legal_actions(s) {
@@ -273,8 +525,7 @@ fn is_legal(s, a) {
     return false
 }
 
-// ---- applying actions ---------------------------------------------------
-
+// ---- applying -----------------------------------------------------------
 fn set_event(t, kind, a, b, c, d) {
     t[h_ev()] = kind
     t[h_ev() + 1] = a
@@ -284,253 +535,480 @@ fn set_event(t, kind, a, b, c, d) {
     return t
 }
 
-fn min_i(a, b) { if a < b { return a } return b }
+fn remove_card(t, p, c) {
+    t[pb(p) + 11] = hand(t, p) - pow2(c)
+    t[pb(p) + 14] = c
+    return t
+}
 
-// Applies a legal action; returns the next state (the input is untouched).
+fn begin_actions(t, suit, pips) {
+    t[h_phase()] = 2
+    t[h_act_suit()] = suit
+    t[h_acts()] = pips
+    t[h_acted()] = 0
+    return t
+}
+
 fn apply(s, a) {
     let t = s
     let p = cur(s)
     let kind = a[0]
-    let pb = p_base() + p * p_stride()
     if kind == 0 {
+        // lead a card, optionally declaring an ambition
         let c = a[1]
-        let lead = phase(s) == 0
-        t[pb + 3] = hand(s, p) - pow2(c)
-        t[pb + 4] = c
-        if lead {
-            t[h_lead_suit()] = card_suit(c)
-            t[h_best_rank()] = card_rank(c)
-            t[h_best_player()] = p
-            t[h_asuit()] = card_suit(c)
-            t[h_acts()] = 2
-        } else {
-            if card_suit(c) == s[h_lead_suit()] {
-                t[h_asuit()] = s[h_lead_suit()]
-                if card_rank(c) > s[h_best_rank()] {
-                    t[h_best_rank()] = card_rank(c)
-                    t[h_best_player()] = p
-                }
-            } else {
-                t[h_asuit()] = card_suit(c)
-            }
-            t[h_acts()] = 1
+        t = remove_card(t, p, c)
+        t[h_lead_suit()] = card_suit(c)
+        t[h_best_num()] = card_num(c)
+        t[h_best_player()] = p
+        t[h_turns()] = 1
+        if a[2] >= 0 {
+            t[h_amb_count()] = s[h_amb_count()] + 1
+            t[h_amb() + a[2]] = t[h_amb_count()]
         }
-        t[h_played()] = s[h_played()] + 1
-        t[h_phase()] = 2
-        t = set_event(t, 0, p, c, 0, 0)
+        t = set_event(t, 0, p, c, a[2], 0)
+        t = begin_actions(t, card_suit(c), card_pips(card_suit(c), card_num(c)))
         return settle(t)
     }
+    if kind == 1 || kind == 2 || kind == 3 {
+        let c = a[1]
+        t = remove_card(t, p, c)
+        t[h_turns()] = s[h_turns()] + 1
+        if kind == 1 {
+            t[h_best_num()] = card_num(c)
+            t[h_best_player()] = p
+            if card_num(c) == 7 && nplayers(s) == 4 && s[h_seized()] == -1 { t[h_seized()] = p }
+            t = begin_actions(t, s[h_lead_suit()], card_pips(card_suit(c), card_num(c)))
+        } else if kind == 2 {
+            t = begin_actions(t, s[h_lead_suit()], 1)
+        } else {
+            t = begin_actions(t, card_suit(c), 1)
+        }
+        t = set_event(t, kind, p, c, 0, 0)
+        return settle(t)
+    }
+    if kind == 5 {
+        // seize the initiative: an extra card face down, then play as usual
+        t = remove_card(t, p, a[1])
+        t[h_seized()] = p
+        return set_event(t, 5, p, 0, 0, 0)
+    }
+    if kind == 4 {
+        t = set_event(t, 4, p, 0, 0, 0)
+        if phase(s) == 0 { return end_chapter(t) }
+        t[h_turns()] = s[h_turns()] + 1
+        return advance_turn(t)
+    }
     if kind == 6 {
+        let r = a[1]
+        t[pb(p) + 1 + r] = res(s, p, r) - 1
+        t[supply_base() + r] = supply(s, r) + 1
+        if r == 0 { t[h_x_build()] = s[h_x_build()] + 1 }
+        if r == 1 { t[h_x_move()] = s[h_x_move()] + 1 }
+        if r == 2 { t[h_x_battle()] = s[h_x_battle()] + 1 }
+        if r == 4 { t[h_x_lead()] = s[h_x_lead()] + 1 }
+        return set_event(t, 6, p, r, 0, 0)
+    }
+    if kind == 7 {
         t[h_acts()] = 0
-        return settle(set_event(t, 6, p, 0, 0, 0))
+        t[h_x_build()] = 0
+        t[h_x_move()] = 0
+        t[h_x_battle()] = 0
+        t[h_x_lead()] = 0
+        t = set_event(t, 7, p, 0, 0, 0)
+        return advance_turn(t)
     }
-    if kind == 1 {
-        let n = min_i(2, ships(s, a[1], p))
-        t[ships_base() + a[1] * 4 + p] = ships(s, a[1], p) - n
-        t[ships_base() + a[2] * 4 + p] = ships(s, a[2], p) + n
-        t = set_event(t, 1, a[1], a[2], n, p)
-    } else if kind == 2 {
-        t = fight(t, a[1], a[2])
-    } else if kind == 3 {
-        t[city_base() + a[1]] = p
-        t[pb + 1] = power(s, p) - 2
-        t = set_event(t, 3, a[1], p, 0, 0)
-    } else if kind == 4 {
-        let n = min_i(2, pool(s, p))
-        t[ships_base() + a[1] * 4 + p] = ships(s, a[1], p) + n
-        t[pb + 2] = pool(s, p) - n
-        t[pb + 1] = power(s, p) - 1
-        t = set_event(t, 4, a[1], p, n, 0)
-    } else if kind == 5 {
-        t[pb + 1] = power(s, p) + 2
-        t = set_event(t, 5, p, 2, 0, 0)
-    } else if kind == 7 {
-        let g = count_cities(s, p)
-        t[pb + 1] = power(s, p) + g
-        t = set_event(t, 7, p, g, 0, 0)
+    // Real actions: pay with a pip or a prelude extra.
+    let src = source_for(s, kind)
+    if src == 1 {
+        t[h_acts()] = s[h_acts()] - 1
+    } else {
+        let g = kind_group(kind)
+        if g == 0 && s[h_x_build()] > 0 { t[h_x_build()] = s[h_x_build()] - 1 }
+        else if g == 1 && s[h_x_move()] > 0 { t[h_x_move()] = s[h_x_move()] - 1 }
+        else if g == 2 && s[h_x_battle()] > 0 { t[h_x_battle()] = s[h_x_battle()] - 1 }
+        else { t[h_x_lead()] = s[h_x_lead()] - 1 }
     }
-    t[h_acts()] = s[h_acts()] - 1
+    t[h_acted()] = 1
+    if kind == 8 { t = do_tax(t, p, a[1]) }
+    else if kind == 9 || kind == 10 { t = do_build_building(t, p, a[1], a[2], kind) }
+    else if kind == 11 { t = do_build_ships(t, p, a[1]) }
+    else if kind == 12 { t = do_move(t, p, a[1], a[2], a[3]) }
+    else if kind == 13 { t = do_repair(t, p, a[1], a[2]) }
+    else if kind == 14 { t = do_battle(t, p, a[1], a[2], a[3]) }
     return settle(t)
 }
 
-// Up to three dice a side, 5 or 6 hits. Losses return to the owner's pool.
-fn fight(s, sys, enemy) {
-    let t = s
-    let p = cur(s)
-    let a_dice = min_i(3, ships(s, sys, p))
-    let d_dice = min_i(3, ships(s, sys, enemy))
-    let dh = 0
-    let ah = 0
-    for i in range(0, a_dice) {
-        t = draw(t)
-        if roll_d6(t) >= 5 { dh = dh + 1 }
-    }
-    for i in range(0, d_dice) {
-        t = draw(t)
-        if roll_d6(t) >= 5 { ah = ah + 1 }
-    }
-    let d_loss = min_i(dh, ships(s, sys, enemy))
-    let a_loss = min_i(ah, ships(s, sys, p))
-    t[ships_base() + sys * 4 + enemy] = ships(s, sys, enemy) - d_loss
-    t[ships_base() + sys * 4 + p] = ships(s, sys, p) - a_loss
-    let eb = p_base() + enemy * p_stride()
-    let pb = p_base() + p * p_stride()
-    t[eb + 2] = pool(s, enemy) + d_loss
-    t[pb + 2] = pool(s, p) + a_loss
-    if t[ships_base() + sys * 4 + enemy] == 0 && city(s, sys) == enemy && t[ships_base() + sys * 4 + p] > 0 {
-        t[city_base() + sys] = p
-        t[pb] = vp(s, p) + 1
-    }
-    return set_event(t, 2, sys, d_loss, a_loss, enemy)
+fn do_tax(t, p, sys) {
+    let ty = planet_type(sys)
+    t[pb(p) + 1 + ty] = res(t, p, ty) + 1
+    t[supply_base() + ty] = supply(t, ty) - 1
+    return set_event(t, 8, p, sys, ty, 0)
 }
 
-// After any change: end the turn when no actions remain (or none are possible).
-fn settle(s) {
-    if phase(s) != 2 { return s }
-    if acts(s) > 0 {
-        if len(action_actions(s, s[h_asuit()])) > 0 { return s }
-    }
-    return end_turn(s)
+fn build_dmg(t, sys, p) {
+    let c = controller(t, sys)
+    if c >= 0 && c != p { return 1 }
+    return 0
 }
 
-fn end_turn(s) {
-    let t = s
-    t[h_acts()] = 0
-    if t[h_played()] < nplayers(t) {
-        t[h_cur()] = (cur(t) + 1) % nplayers(t)
-        t[h_phase()] = 1
-        return t
+fn do_build_building(t, p, sys, sl, kind) {
+    let d = build_dmg(t, sys, p)
+    t[slot_i(sys, sl)] = p
+    t[slot_i(sys, sl) + 1] = kind - 8        // 9 -> 1 city, 10 -> 2 starport
+    t[slot_i(sys, sl) + 2] = d
+    if kind == 9 { t[pb(p) + 6] = cities_left(t, p) - 1 } else { t[pb(p) + 7] = ports_left(t, p) - 1 }
+    return set_event(t, 9, p, sys, kind - 8, d)
+}
+
+fn do_build_ships(t, p, sys) {
+    let d = build_dmg(t, sys, p)
+    let n = min_i(count_kind(t, sys, p, 2, 0), reserve(t, p))
+    t[ship_i(sys, p, d)] = t[ship_i(sys, p, d)] + n
+    t[pb(p) + 8] = reserve(t, p) - n
+    return set_event(t, 11, p, sys, n, d)
+}
+
+fn do_move(t, p, from, to, cnt) {
+    let f = fresh(t, from, p)
+    let mf = min_i(cnt, f)
+    let md = cnt - mf
+    t[ship_i(from, p, 0)] = f - mf
+    t[ship_i(from, p, 1)] = damaged(t, from, p) - md
+    t[ship_i(to, p, 0)] = fresh(t, to, p) + mf
+    t[ship_i(to, p, 1)] = damaged(t, to, p) + md
+    return set_event(t, 12, p, from, to, cnt)
+}
+
+fn do_repair(t, p, sys, what) {
+    if what == 0 {
+        t[ship_i(sys, p, 1)] = damaged(t, sys, p) - 1
+        t[ship_i(sys, p, 0)] = fresh(t, sys, p) + 1
+    } else {
+        t[slot_i(sys, what - 1) + 2] = 0
     }
-    // trick over
-    let w = t[h_best_player()]
-    t[p_base() + w * p_stride() + 1] = power(t, w) + 1
-    t[h_init()] = w
-    t = set_event(t, 8, w, 0, 0, 0)
-    if hand(t, w) == 0 { return score_round(t) }
-    t[h_cur()] = w
-    t[h_phase()] = 0
-    t[h_lead_suit()] = -1
-    t[h_played()] = 0
-    t[h_best_rank()] = 0
+    return set_event(t, 13, p, sys, what, 0)
+}
+
+// ---- battle -------------------------------------------------------------
+// Returns the state with p's pieces in `sys` hit `n` times: damaged ships are
+// destroyed first when `kill_first`, otherwise fresh ones are damaged first.
+// Destroyed ships are lost (they become a trophy for `taker`, -1 for none).
+fn hit_ships(t, sys, p, n, kill_first, taker) {
+    let left = n
+    let lost = 0
+    while left > 0 && all_ships(t, sys, p) > 0 {
+        let did = false
+        if kill_first {
+            if damaged(t, sys, p) > 0 {
+                t[ship_i(sys, p, 1)] = damaged(t, sys, p) - 1
+                lost = lost + 1
+                did = true
+            } else {
+                t[ship_i(sys, p, 0)] = fresh(t, sys, p) - 1
+                t[ship_i(sys, p, 1)] = damaged(t, sys, p) + 1
+                did = true
+            }
+        } else {
+            if fresh(t, sys, p) > 0 {
+                t[ship_i(sys, p, 0)] = fresh(t, sys, p) - 1
+                t[ship_i(sys, p, 1)] = damaged(t, sys, p) + 1
+                did = true
+            } else {
+                t[ship_i(sys, p, 1)] = damaged(t, sys, p) - 1
+                lost = lost + 1
+                did = true
+            }
+        }
+        left = left - 1
+    }
+    if taker >= 0 { t[pb(taker) + 9] = trophies(t, taker) + lost }
+    t[h_ev() + 5] = t[h_ev() + 5] + left
     return t
 }
 
-// Ambition of round r: 0 most ships, 1 most cities, 2 most systems held.
-fn metric(s, p, kind) {
-    if kind == 0 { return total_ships(s, p) }
-    if kind == 1 { return count_cities(s, p) }
-    return count_controlled(s, p)
-}
-
-fn ambition(s) { return (round(s) - 1) % 3 }
-
-fn score_round(s) {
-    let t = s
-    let n = nplayers(t)
-    let kind = ambition(t)
-    let top = 0
-    for p in range(0, n) {
-        if metric(t, p, kind) > top { top = metric(t, p, kind) }
-    }
-    if top > 0 {
-        let at_top = 0
-        for p in range(0, n) {
-            if metric(t, p, kind) == top { at_top = at_top + 1 }
-        }
-        let second = 0
-        for p in range(0, n) {
-            let m = metric(t, p, kind)
-            if m < top && m > second { second = m }
-        }
-        for p in range(0, n) {
-            let m = metric(t, p, kind)
-            let b = p_base() + p * p_stride()
-            if m == top {
-                t[b] = vp(t, p) + (if at_top == 1 { 3 } else { 2 })
-            } else if m == second && second > 0 && at_top == 1 {
-                let tied_second = 0
-                for q in range(0, n) {
-                    if metric(t, q, kind) == second { tied_second = tied_second + 1 }
-                }
-                if tied_second == 1 { t[b] = vp(t, p) + 1 }
+// Building hits: each hit damages a fresh building, or destroys a damaged one.
+fn hit_buildings(t, sys, p, n, taker) {
+    let left = n
+    while left > 0 && count_buildings(t, sys, p) > 0 {
+        let done = false
+        for sl in range(0, 2) {
+            if !done && slot_kind(t, sys, sl) != 0 && slot_owner(t, sys, sl) == p && slot_dmg(t, sys, sl) == 0 {
+                t[slot_i(sys, sl) + 2] = 1
+                done = true
             }
         }
+        if !done {
+            for sl in range(0, 2) {
+                if !done && slot_kind(t, sys, sl) != 0 && slot_owner(t, sys, sl) == p {
+                    let was_city = slot_kind(t, sys, sl) == 1
+                    t[slot_i(sys, sl)] = -1
+                    t[slot_i(sys, sl) + 1] = 0
+                    t[slot_i(sys, sl) + 2] = 0
+                    if taker >= 0 { t[pb(taker) + 9] = trophies(t, taker) + 1 }
+                    if was_city { t = outrage(t, p, planet_type(sys)) }
+                    done = true
+                }
+            }
+        }
+        left = left - 1
     }
-    for p in range(0, n) {
-        let b = p_base() + p * p_stride()
-        t[b + 1] = power(t, p) + count_cities(t, p)
-    }
-    t = set_event(t, 9, round(t), kind, 0, 0)
-    if round(t) >= total_rounds() {
-        t[h_phase()] = 3
-        return t
-    }
-    t[h_round()] = round(t) + 1
-    return deal(t)
+    return t
 }
 
-fn is_over(s) { return phase(s) == 3 }
+// A destroyed city: its owner discards that type's resources and is outraged.
+fn outrage(t, p, ty) {
+    let n = res(t, p, ty)
+    t[pb(p) + 1 + ty] = 0
+    t[supply_base() + ty] = supply(t, ty) + n
+    if !outraged(t, p, ty) { t[pb(p) + 13] = t[pb(p) + 13] + pow2(ty) }
+    return t
+}
 
-// Highest VP; ties broken by power, then ships on board. Lowest seat wins a full tie.
+fn do_battle(s, p, sys, e, packed) {
+    let t = s
+    let assault = packed / 49
+    let skirm = (packed / 7) % 7
+    let raid = packed % 7
+    let selfh = 0
+    let inter = 0
+    let hits = 0
+    let bhits = 0
+    let keys = 0
+    for k in range(0, 3) {
+        let cnt = [assault, skirm, raid][k]
+        for i in range(0, cnt) {
+            t = draw(t)
+            let f = die_face(k, roll_d6(t))
+            selfh = selfh + f[0]
+            inter = inter + f[1]
+            hits = hits + f[2]
+            bhits = bhits + f[3]
+            keys = keys + f[4]
+        }
+    }
+    t[h_ev() + 5] = 0
+    // 1. self hits (the attacker minimises its losses: damage fresh ships first)
+    t = hit_ships(t, sys, p, selfh, false, e)
+    // 2. one round of interception: each intercept lets a fresh defender ship hit back
+    let back = min_i(inter, fresh(t, sys, e))
+    t = hit_ships(t, sys, p, back, false, e)
+    // 3. ship hits, spilling to buildings once the defender has no ships left
+    let ships_before = all_ships(t, sys, e)
+    t = hit_ships(t, sys, e, hits, true, p)
+    let spill = t[h_ev() + 5]
+    t[h_ev() + 5] = 0
+    // 4. building hits (plus any spill)
+    t = hit_buildings(t, sys, e, bhits + spill, p)
+    // 5. raids: each key steals the defender's most plentiful resource
+    let stolen = 0
+    for k in range(0, keys) {
+        let best = -1
+        let bv = 0
+        for ty in range(0, 5) {
+            if res(t, e, ty) > bv { bv = res(t, e, ty)
+                best = ty }
+        }
+        if best >= 0 {
+            t[pb(e) + 1 + best] = res(t, e, best) - 1
+            t[pb(p) + 1 + best] = res(t, p, best) + 1
+            stolen = stolen + 1
+        }
+    }
+    t[h_ev() + 5] = 0
+    return set_event(t, 14, p, sys, e, stolen)
+}
+
+// ---- turn flow ----------------------------------------------------------
+// After any change: end the turn when no actions remain or none are possible.
+fn settle(s) {
+    if phase(s) != 2 { return s }
+    let any = len(action_list(s)) > 0
+    if !any && s[h_acted()] == 1 { return advance_turn(clear_extras(s)) }
+    if !any && acts(s) == 0 && s[h_x_build()] + s[h_x_move()] + s[h_x_battle()] + s[h_x_lead()] == 0 {
+        return advance_turn(s)
+    }
+    if acts(s) == 0 && s[h_x_build()] + s[h_x_move()] + s[h_x_battle()] + s[h_x_lead()] == 0 && s[h_acted()] == 1 {
+        return advance_turn(s)
+    }
+    return s
+}
+
+fn clear_extras(s) {
+    let t = s
+    t[h_acts()] = 0
+    t[h_x_build()] = 0
+    t[h_x_move()] = 0
+    t[h_x_battle()] = 0
+    t[h_x_lead()] = 0
+    return t
+}
+
+// Hand the turn to the next player, or close the round.
+fn advance_turn(s) {
+    let t = clear_extras(s)
+    if t[h_turns()] >= nplayers(t) { return end_round(t) }
+    t[h_cur()] = (cur(t) + 1) % nplayers(t)
+    t[h_phase()] = 1
+    t[h_acted()] = 0
+    return t
+}
+
+fn all_hands_empty(s) {
+    for p in range(0, nplayers(s)) {
+        if hand(s, p) != 0 { return false }
+    }
+    return true
+}
+
+fn end_round(s) {
+    let t = s
+    let next = t[h_init()]
+    if t[h_seized()] >= 0 {
+        next = t[h_seized()]
+    } else if t[h_best_player()] >= 0 {
+        next = t[h_best_player()]
+    }
+    t[h_init()] = next
+    t = set_event(t, 20, next, 0, 0, 0)
+    if all_hands_empty(t) { return end_chapter(t) }
+    // a player with no cards left cannot lead
+    let guard = 0
+    while hand(t, t[h_init()]) == 0 && guard < 6 {
+        t[h_init()] = (t[h_init()] + 1) % nplayers(t)
+        guard = guard + 1
+    }
+    return start_round(t)
+}
+
+// ---- ambitions and chapters --------------------------------------------
+// 0 Tycoon (Fuel + Material), 1 Tyrant (captives), 2 Warlord (trophies),
+// 3 Keeper (Relics), 4 Empath (Psionic).
+fn amb_tally(s, p, a) {
+    if a == 0 { return res(s, p, 0) + res(s, p, 1) }
+    if a == 1 { return captives(s, p) }
+    if a == 2 { return trophies(s, p) }
+    if a == 3 { return res(s, p, 3) }
+    return res(s, p, 4)
+}
+
+fn score_ambition(s, a) {
+    let t = s
+    let rank = s[h_amb() + a]
+    if rank == 0 { return t }
+    let vals = marker_values(rank - 1)
+    let n = nplayers(t)
+    let top = 0
+    for p in range(0, n) { top = max_i(top, amb_tally(t, p, a)) }
+    if top == 0 { return t }
+    let at_top = 0
+    for p in range(0, n) {
+        if amb_tally(t, p, a) == top { at_top = at_top + 1 }
+    }
+    let second = 0
+    for p in range(0, n) {
+        let m = amb_tally(t, p, a)
+        if m < top { second = max_i(second, m) }
+    }
+    for p in range(0, n) {
+        let m = amb_tally(t, p, a)
+        if m == top {
+            // ties for first share the second-place value
+            t[pb(p)] = power(t, p) + (if at_top == 1 { vals[0] } else { vals[1] })
+        } else if at_top == 1 && second > 0 && m == second {
+            t[pb(p)] = power(t, p) + vals[1]
+        }
+    }
+    return t
+}
+
+fn end_chapter(s) {
+    let t = s
+    for a in range(0, 5) { t = score_ambition(t, a) }
+    t = set_event(t, 21, chapter(t), 0, 0, 0)
+    for a in range(0, 5) { t[h_amb() + a] = 0 }
+    t[h_amb_count()] = 0
+    for p in range(0, nplayers(t)) { t[pb(p) + 13] = 0 }
+    let goal = power_goal(nplayers(t))
+    let hit = false
+    for p in range(0, nplayers(t)) {
+        if power(t, p) >= goal { hit = true }
+    }
+    if hit || chapter(t) >= 5 {
+        t[h_phase()] = 4
+        return t
+    }
+    t[h_chapter()] = chapter(t) + 1
+    return deal_chapter(t)
+}
+
+fn is_over(s) { return phase(s) == 4 }
+
+// Highest power; ties by total resources, then total ships on the map.
 fn winner(s) {
     let best = 0
     for p in range(1, nplayers(s)) {
-        let a = [vp(s, p), power(s, p), total_ships(s, p)]
-        let b = [vp(s, best), power(s, best), total_ships(s, best)]
-        if a[0] > b[0] || (a[0] == b[0] && (a[1] > b[1] || (a[1] == b[1] && a[2] > b[2]))) {
-            best = p
-        }
+        let a = [power(s, p), total_resources(s, p), trophies(s, p)]
+        let b = [power(s, best), total_resources(s, best), trophies(s, best)]
+        if a[0] > b[0] || (a[0] == b[0] && (a[1] > b[1] || (a[1] == b[1] && a[2] > b[2]))) { best = p }
     }
     return best
 }
 
 // ---- bot ----------------------------------------------------------------
-
-fn suit_weight(s, suit) {
-    let p = cur(s)
-    if suit == 2 && power(s, p) >= 2 { return 8 }
-    if suit == 3 && power(s, p) < 2 { return 7 }
-    if suit == 1 { return 5 }
-    if suit == 0 { return 4 }
-    return 3
-}
-
 fn score_action(s, a) {
     let p = cur(s)
     let k = a[0]
-    if k == 0 { return card_rank(a[1]) + suit_weight(s, card_suit(a[1])) * 2 }
-    if k == 3 { return 100 }
-    if k == 4 { return 60 }
-    if k == 2 {
-        if ships(s, a[1], p) > ships(s, a[1], a[2]) { return 80 }
-        return 15
-    }
-    if k == 1 {
-        let to = a[2]
-        let v = 5
-        if ships(s, to, p) == 0 { v = v + 10 }
-        for e in range(0, nplayers(s)) {
-            if e != p && ships(s, to, e) > 0 {
-                if ships(s, to, e) < ships(s, a[1], p) { v = v + 40 } else { v = v - 20 }
-            }
-        }
-        if city(s, to) != p && city(s, to) != -1 { v = v + 15 }
-        if city(s, a[1]) == p && ships(s, a[1], p) <= 2 { v = v - 25 }
+    if k == 0 {
+        let c = a[1]
+        let v = card_pips(card_suit(c), card_num(c)) * 10 + card_num(c)
+        if a[2] >= 0 { v = v + 25 }
         return v
     }
-    if k == 5 { if power(s, p) < 2 { return 70 } return 20 }
-    if k == 7 { return 25 + count_cities(s, p) * 8 }
+    if k == 1 { return 60 + card_num(a[1]) }
+    if k == 2 { return 20 }
+    if k == 3 { return 30 }
+    if k == 4 { return 1 }
+    if k == 5 { return 5 }
+    if k == 6 { return 12 }
+    if k == 7 { return 1 }
+    if k == 8 { return 40 + (5 - supply(s, planet_type(a[1]))) }
+    if k == 9 { return 90 }
+    if k == 10 { return 80 }
+    if k == 11 { return 70 }
+    if k == 13 { return 35 }
+    if k == 12 {
+        let to = a[2]
+        let v = 8 + a[3]
+        if free_slot(s, to) >= 0 && !is_gate(to) { v = v + 12 }
+        for e in range(0, nplayers(s)) {
+            if e != p && all_ships(s, to, e) > 0 {
+                if fresh(s, to, e) < a[3] { v = v + 45 } else { v = v - 25 }
+            }
+        }
+        if fresh(s, a[1], p) == a[3] && count_buildings(s, a[1], p) > 0 { v = v - 30 }
+        return v
+    }
+    if k == 14 {
+        let e = a[2]
+        let mine = all_ships(s, a[1], p)
+        let theirs = all_ships(s, a[1], e)
+        let v = 10
+        if mine > theirs { v = 75 }
+        if mine > theirs * 2 { v = 95 }
+        let dice = a[3]
+        let assault = dice / 49
+        v = v - assault * 2
+        return v
+    }
     return 1
 }
 
-// Picks the highest-scoring legal action; the state's own generator breaks ties.
 fn bot_choose(s) {
-    let acts_l = legal_actions(s)
+    let opts = legal_actions(s)
     let t = draw(s)
-    let best = acts_l[0]
+    let best = opts[0]
     let best_v = -1000000
-    let i = 0
-    for a in acts_l {
+    for a in opts {
         t = draw(t)
         let v = score_action(s, a) * 10 + rng_val(t[h_rng()]) % 10
         if v > best_v {
@@ -541,11 +1019,10 @@ fn bot_choose(s) {
     return best
 }
 
-// Plays a whole game of bots; returns the final state (for tests and tuning).
-fn bot_game(n, seed) {
-    let s = new_game(n, seed)
+fn bot_game(n, seed, setup_idx) {
+    let s = new_game(n, seed, setup_idx)
     let steps = 0
-    while !is_over(s) && steps < 2000 {
+    while !is_over(s) && steps < 6000 {
         s = apply(s, bot_choose(s))
         steps = steps + 1
     }

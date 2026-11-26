@@ -1,7 +1,7 @@
 //! egui screens: start menu, in-game HUD (scores, hand, actions, log), game over.
 
 use egui::{self, Color32, RichText};
-use reach_rules::{Action, Card, Phase, State, Suit};
+use reach_rules::{Action, Card, Kind, Phase, Slot, State, AMBITIONS, RESOURCES, SUITS, SYSTEMS};
 
 pub const NAMES: [&str; 4] = ["Crimson", "Azure", "Amber", "Verdant"];
 /// sRGB, for UI.
@@ -12,27 +12,37 @@ pub fn ui_color(p: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-pub fn suit_color(s: Suit) -> Color32 {
+pub fn suit_color(s: usize) -> Color32 {
     match s {
-        Suit::Move => Color32::from_rgb(70, 160, 230),
-        Suit::Fight => Color32::from_rgb(225, 80, 70),
-        Suit::Build => Color32::from_rgb(230, 170, 60),
-        Suit::Influence => Color32::from_rgb(160, 110, 230),
+        0 => Color32::from_rgb(160, 110, 230),
+        1 => Color32::from_rgb(225, 80, 70),
+        2 => Color32::from_rgb(230, 170, 60),
+        _ => Color32::from_rgb(70, 160, 230),
     }
 }
 
+pub fn res_color(t: usize) -> Color32 {
+    let c = [[200, 160, 100], [240, 120, 60], [210, 80, 80], [110, 200, 230], [190, 120, 240]][t];
+    Color32::from_rgb(c[0], c[1], c[2])
+}
+
 pub fn card_label(c: Card) -> String {
-    format!("{} {}", c.suit().name(), c.rank())
+    c.name()
+}
+
+pub fn sys_name(sys: usize) -> String {
+    format!("{}{}", ["Spire ", "Crescent ", "Hexad ", "Gate "][sys % 4], sys / 4 + 1)
 }
 
 pub struct MenuState {
     pub players: usize,
     pub bots: [bool; 4],
+    pub setup: usize,
 }
 
 impl Default for MenuState {
     fn default() -> Self {
-        Self { players: 3, bots: [false, true, true, true] }
+        Self { players: 3, bots: [false, true, true, true], setup: 0 }
     }
 }
 
@@ -51,6 +61,12 @@ pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
                 ui.label("Players");
                 for n in 2..=4 {
                     ui.selectable_value(&mut m.players, n, n.to_string());
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Setup card");
+                for k in 0..State::setup_count(m.players) {
+                    ui.selectable_value(&mut m.setup, k, (k + 1).to_string());
                 }
             });
             ui.add_space(6.0);
@@ -102,22 +118,40 @@ pub struct HudOutput {
 }
 
 pub fn action_text(a: Action) -> String {
-    match a {
-        Action::Play(c) => card_label(c),
-        Action::Move { from, to } => format!("Move  {} → {}", from + 1, to + 1),
-        Action::Fight { system, enemy } => format!("Fight at {} vs {}", system + 1, NAMES[enemy as usize]),
-        Action::Build { system } => format!("Build city at {}  (2 power)", system + 1),
-        Action::Levy { system } => format!("Levy ships at {}  (1 power)", system + 1),
-        Action::Sway => "Sway  (+2 power)".into(),
-        Action::Tax => "Tax  (+1 power per city)".into(),
-        Action::EndTurn => "End turn".into(),
+    let v = a.0;
+    match a.kind() {
+        Kind::Lead => {
+            if v[2] >= 0 {
+                format!("Lead · declare {}", AMBITIONS[v[2] as usize])
+            } else {
+                "Lead".into()
+            }
+        }
+        Kind::Surpass => "Surpass".into(),
+        Kind::Copy => "Copy".into(),
+        Kind::Pivot => "Pivot".into(),
+        Kind::Pass => "Pass".into(),
+        Kind::Seize => "Seize the initiative".into(),
+        Kind::Prelude => format!("Spend {} · extra action", RESOURCES[v[1] as usize]),
+        Kind::EndTurn => "End turn".into(),
+        Kind::Tax => format!("Tax {}", sys_name(v[1] as usize)),
+        Kind::BuildCity => format!("Build city · {}", sys_name(v[1] as usize)),
+        Kind::BuildPort => format!("Build starport · {}", sys_name(v[1] as usize)),
+        Kind::BuildShips => format!("Build ships · {}", sys_name(v[1] as usize)),
+        Kind::Move => format!("Move {} · {} → {}", v[3], sys_name(v[1] as usize), sys_name(v[2] as usize)),
+        Kind::Repair => format!("Repair · {}", sys_name(v[1] as usize)),
+        Kind::Battle => {
+            let (asl, sk, rd) = (v[3] / 49, v[3] / 7 % 7, v[3] % 7);
+            format!("Battle · {} vs {} ({}A {}S {}R)", sys_name(v[1] as usize), NAMES[v[2] as usize], asl, sk, rd)
+        }
     }
 }
 
 pub fn action_systems(a: Action) -> Vec<usize> {
-    match a {
-        Action::Move { from, to } => vec![from as usize, to as usize],
-        Action::Fight { system, .. } | Action::Build { system } | Action::Levy { system } => vec![system as usize],
+    let v = a.0;
+    match a.kind() {
+        Kind::Move => vec![v[1] as usize, v[2] as usize],
+        Kind::Tax | Kind::BuildCity | Kind::BuildPort | Kind::BuildShips | Kind::Repair | Kind::Battle => vec![v[1] as usize],
         _ => vec![],
     }
 }
@@ -131,18 +165,21 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     // ---- scoreboard (top-left)
     egui::Area::new(egui::Id::new("scores")).anchor(egui::Align2::LEFT_TOP, [10.0, 10.0]).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.label(
-                RichText::new(format!("Chapter {} of {}", s.round(), reach_rules::ROUNDS)).strong().size(16.0),
-            );
-            ui.label(RichText::new(format!("Ambition: {}", s.ambition().name())).color(Color32::from_rgb(255, 200, 120)));
+            ui.label(RichText::new(format!("Chapter {} of 5", s.chapter())).strong().size(16.0));
+            let ranks = s.ambition_ranks();
+            let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
+            declared.sort();
+            let txt = if declared.is_empty() {
+                "No ambitions declared".to_string()
+            } else {
+                declared.iter().map(|(r, a)| format!("{}: {}", ["1st", "2nd", "3rd"][*r as usize - 1], AMBITIONS[*a])).collect::<Vec<_>>().join("   ")
+            };
+            ui.label(RichText::new(txt).color(Color32::from_rgb(255, 200, 120)));
             ui.add_space(4.0);
-            egui::Grid::new("sb").num_columns(6).spacing([10.0, 3.0]).show(ui, |ui| {
-                ui.label("");
-                ui.label(RichText::new("VP").small());
-                ui.label(RichText::new("Power").small());
-                ui.label(RichText::new("Ships").small());
-                ui.label(RichText::new("Cities").small());
-                ui.label("");
+            egui::Grid::new("sb").num_columns(7).spacing([10.0, 3.0]).show(ui, |ui| {
+                for h in ["", "Power", "Resources", "Ships", "Cities", "Trophies", ""] {
+                    ui.label(RichText::new(h).small());
+                }
                 ui.end_row();
                 for p in 0..n {
                     let mark = if p == cur && !s.is_over() { "▶ " } else { "   " };
@@ -151,11 +188,17 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                         name.push_str(" (bot)");
                     }
                     ui.label(RichText::new(name).color(ui_color(p)).strong());
-                    ui.label(RichText::new(s.vp(p).to_string()).strong());
-                    ui.label(s.power(p).to_string());
-                    let on_board: i64 = (0..reach_rules::SYSTEMS).map(|y| s.ships(y, p)).sum();
-                    ui.label(format!("{on_board}+{}", s.pool(p)));
-                    ui.label((0..reach_rules::SYSTEMS).filter(|&y| s.city(y) == Some(p)).count().to_string());
+                    ui.label(RichText::new(s.power(p).to_string()).strong());
+                    ui.horizontal(|ui| {
+                        for t in 0..5 {
+                            ui.label(RichText::new(s.resource(p, t).to_string()).color(res_color(t)).strong());
+                        }
+                    });
+                    let on_board: i64 = (0..SYSTEMS).map(|y| s.ship_count(y, p)).sum();
+                    ui.label(format!("{on_board}+{}", s.reserve(p)));
+                    let cities = (0..SYSTEMS).flat_map(|y| (0..2).map(move |sl| (y, sl))).filter(|&(y, sl)| matches!(s.slot(y, sl), Slot::City { owner, .. } if owner == p)).count();
+                    ui.label(cities.to_string());
+                    ui.label(format!("{}/{}", s.trophies(p), s.captives(p)));
                     ui.label(if s.initiative() == p { "★ lead" } else { "" });
                     ui.end_row();
                 }
@@ -187,7 +230,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 ui.label(RichText::new(format!("{} wins!", NAMES[w])).size(30.0).strong().color(ui_color(w)));
                 ui.add_space(8.0);
                 for p in 0..n {
-                    ui.label(RichText::new(format!("{}: {} VP, {} power", NAMES[p], s.vp(p), s.power(p))).color(ui_color(p)));
+                    ui.label(RichText::new(format!("{}: {} power", NAMES[p], s.power(p))).color(ui_color(p)));
                 }
                 ui.add_space(10.0);
                 if ui.button("New game").clicked() {
@@ -219,18 +262,18 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
         ui.vertical_centered(|ui| {
             let status = match (s.phase(), human) {
                 (_, false) => format!("{} (bot) is thinking…", NAMES[cur]),
-                (Phase::Lead, _) => format!("{}: lead a card — {} actions of its suit", NAMES[cur], 2),
+                (Phase::Lead, _) => format!("{}: lead a card, or pass to end the chapter", NAMES[cur]),
                 (Phase::Follow, _) => format!(
-                    "{}: follow {} (or pivot if you hold none)",
+                    "{}: follow {} (surpass, copy or pivot), seize, or pass",
                     NAMES[cur],
-                    s.lead_suit().map(|x| x.name()).unwrap_or("?")
+                    s.lead_suit().map(|x| SUITS[x]).unwrap_or("?")
                 ),
                 (Phase::Act, _) => format!(
                     "{}: {} action{} left ({})",
                     NAMES[cur],
                     s.actions_left(),
                     if s.actions_left() == 1 { "" } else { "s" },
-                    s.action_suit().name()
+                    SUITS[s.action_suit()]
                 ),
                 _ => String::new(),
             };
@@ -238,43 +281,51 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 ui.label(RichText::new(status).strong().color(ui_color(cur)));
             });
             if human && !h.busy {
+                let acts = s.legal_actions();
+                let mut show = |ui: &mut egui::Ui, a: Action, out: &mut HudOutput| {
+                    let sys = action_systems(a);
+                    let b = ui.button(action_text(a));
+                    if b.hovered() {
+                        out.hover_systems = sys;
+                    }
+                    if b.clicked() {
+                        out.action = Some(a);
+                    }
+                };
                 if s.phase() == Phase::Act {
-                    let acts = s.legal_actions();
+                    let many = acts.len() > 36;
+                    if many && h.selected.is_none() {
+                        ui.label(RichText::new("Click a system on the board to see its actions").small());
+                    }
                     ui.horizontal_wrapped(|ui| {
-                        for a in acts {
+                        for a in acts.iter().copied() {
                             let sys = action_systems(a);
-                            if let Some(sel) = h.selected {
-                                if !sys.is_empty() && !sys.contains(&sel) {
-                                    continue;
+                            match h.selected {
+                                Some(sel) if !sys.is_empty() && !sys.contains(&sel) => continue,
+                                None if many && !sys.is_empty() => continue,
+                                _ => {}
+                            }
+                            show(ui, a, &mut out);
+                        }
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        for c in s.hand(cur) {
+                            ui.vertical(|ui| {
+                                let col = suit_color(c.suit());
+                                ui.label(RichText::new(format!("{}\n{}", SUITS[c.suit()], c.number())).size(16.0).strong().color(Color32::WHITE).background_color(col.gamma_multiply(0.6)));
+                                for a in acts.iter().copied().filter(|a| a.card() == Some(c)) {
+                                    show(ui, a, &mut out);
                                 }
-                            }
-                            let b = ui.button(action_text(a));
-                            if b.hovered() {
-                                out.hover_systems = sys;
-                            }
-                            if b.clicked() {
-                                out.action = Some(a);
-                            }
+                            });
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        for a in acts.iter().copied().filter(|a| a.card().is_none()) {
+                            show(ui, a, &mut out);
                         }
                     });
                 }
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    let legal = if matches!(s.phase(), Phase::Lead | Phase::Follow) { s.legal_actions() } else { vec![] };
-                    for c in s.hand(cur) {
-                        let playable = legal.contains(&Action::Play(c));
-                        let col = suit_color(c.suit());
-                        let txt = RichText::new(format!("{}\n{}", c.suit().name(), c.rank())).size(17.0).strong().color(
-                            if playable { Color32::WHITE } else { Color32::from_gray(120) },
-                        );
-                        let b = egui::Button::new(txt)
-                            .fill(if playable { col.gamma_multiply(0.75) } else { Color32::from_gray(40) })
-                            .min_size(egui::vec2(78.0, 84.0));
-                        if ui.add_enabled(playable, b).clicked() {
-                            out.action = Some(Action::Play(c));
-                        }
-                    }
-                });
             }
         });
     });
@@ -282,21 +333,24 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     out
 }
 
-pub fn describe(e: reach_rules::Event, lead_names: &[&str; 4]) -> Option<String> {
-    use reach_rules::Event::*;
-    let nm = |p: u8| lead_names[p as usize];
-    Some(match e {
-        CardPlayed { player, card } => format!("{} plays {}", nm(player), card_label(card)),
-        Moved { from, to, ships, player } => format!("{} moves {ships} from {} to {}", nm(player), from + 1, to + 1),
-        Fought { system, enemy_lost, attacker_lost, enemy } => {
-            format!("Battle at {} vs {}: they lose {enemy_lost}, attacker loses {attacker_lost}", system + 1, nm(enemy))
-        }
-        Built { system, player } => format!("{} builds a city at {}", nm(player), system + 1),
-        Levied { system, player, ships } => format!("{} levies {ships} ships at {}", nm(player), system + 1),
-        Swayed { player, power } => format!("{} sways +{power} power", nm(player)),
-        Taxed { player, power } => format!("{} taxes +{power} power", nm(player)),
-        TrickWon { player } => format!("{} takes the lead (+1 power)", nm(player)),
-        RoundScored { round, ambition } => format!("Chapter {round} scored: {}", ambition.name()),
-        EndedTurn { .. } | None => return Option::None,
+pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
+    let nm = |p: i64| names[p as usize];
+    Some(match e[0] {
+        0 => format!("{} leads {}", nm(e[1]), card_label(Card(e[2] as u8))),
+        1 => format!("{} surpasses with {}", nm(e[1]), card_label(Card(e[2] as u8))),
+        2 => format!("{} copies with {}", nm(e[1]), card_label(Card(e[2] as u8))),
+        3 => format!("{} pivots with {}", nm(e[1]), card_label(Card(e[2] as u8))),
+        4 => format!("{} passes", nm(e[1])),
+        5 => format!("{} seizes the initiative", nm(e[1])),
+        6 => format!("{} spends {}", nm(e[1]), RESOURCES[e[2] as usize]),
+        8 => format!("{} taxes {}", nm(e[1]), sys_name(e[2] as usize)),
+        9 => format!("{} builds a {} at {}", nm(e[1]), if e[3] == 1 { "city" } else { "starport" }, sys_name(e[2] as usize)),
+        11 => format!("{} builds ships at {}", nm(e[1]), sys_name(e[2] as usize)),
+        12 => format!("{} moves {} ships {} → {}", nm(e[1]), e[4], sys_name(e[2] as usize), sys_name(e[3] as usize)),
+        13 => format!("{} repairs at {}", nm(e[1]), sys_name(e[2] as usize)),
+        14 => format!("{} attacks {} at {}", nm(e[1]), nm(e[3]), sys_name(e[2] as usize)),
+        20 => format!("Round over, {} holds the initiative", nm(e[1])),
+        21 => format!("Chapter {} scored", e[1]),
+        _ => return None,
     })
 }

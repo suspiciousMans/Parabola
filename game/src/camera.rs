@@ -7,8 +7,8 @@ use dust_engine::glam::{Mat4, Vec3, Vec4};
 pub const MIN_PITCH: f32 = 0.45; // ~25 deg
 pub const MAX_PITCH: f32 = 1.45; // ~83 deg
 pub const MIN_DIST: f32 = 5.0;
-pub const MAX_DIST: f32 = 26.0;
-pub const PAN_LIMIT: f32 = 9.0;
+pub const MAX_DIST: f32 = 48.0;
+pub const PAN_LIMIT: f32 = 12.0;
 
 pub struct BoardCamera {
     pub cam: OrbitCamera,
@@ -19,7 +19,7 @@ pub struct BoardCamera {
 }
 
 const OVERVIEW_PITCH: f32 = 0.96; // 55 deg
-const OVERVIEW_DIST: f32 = 15.5;
+const OVERVIEW_DIST: f32 = 29.0;
 
 impl BoardCamera {
     pub fn new() -> Self {
@@ -42,7 +42,7 @@ impl BoardCamera {
 
     pub fn focus(&mut self, p: Vec3) {
         self.goal_target = Self::clamp_target(Vec3::new(p.x, 0.0, p.z));
-        self.goal_dist = self.goal_dist.min(9.0);
+        self.goal_dist = self.goal_dist.min(11.0);
     }
 
     pub fn set_distance(&mut self, d: f32) {
