@@ -1,0 +1,13 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System libraries for the bundled SDL2 and audio
+        run: sudo apt-get update && sudo apt-get install -y cmake libasound2-dev libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev
+      - uses: Swatinem/rust-cache@v2
+      # No Oxidized binary here: the build uses the committed rules/ox_gen/reach_gen.rs.
+      - run: cargo test --workspace

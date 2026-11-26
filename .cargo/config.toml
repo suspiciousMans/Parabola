@@ -1,0 +1,10 @@
+# Needed to build the vendored SDL2 (sdl2-sys "bundled") with current CMake and GCC.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+CFLAGS = "-std=gnu11"
+
+# Web build (see web/build.sh): wasm32-unknown-emscripten, SDL2 port, WebGL2.
+[target.wasm32-unknown-emscripten]
+rustflags = [
+    "-C", "link-args=-sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3=1 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728 -sEXIT_RUNTIME=0",
+]

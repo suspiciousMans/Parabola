@@ -1,0 +1,164 @@
+//! Bird's-eye board camera: orbit, pan, zoom, quarter-turns, glide-to-point,
+//! all eased toward goals so nothing snaps.
+
+use dust_engine::camera::OrbitCamera;
+use dust_engine::glam::{Mat4, Vec3, Vec4};
+
+pub const MIN_PITCH: f32 = 0.45; // ~25 deg
+pub const MAX_PITCH: f32 = 1.45; // ~83 deg
+pub const MIN_DIST: f32 = 5.0;
+pub const MAX_DIST: f32 = 48.0;
+pub const PAN_LIMIT: f32 = 12.0;
+
+pub struct BoardCamera {
+    pub cam: OrbitCamera,
+    goal_target: Vec3,
+    goal_yaw: f32,
+    goal_pitch: f32,
+    goal_dist: f32,
+}
+
+const OVERVIEW_PITCH: f32 = 0.96; // 55 deg
+const OVERVIEW_DIST: f32 = 29.0;
+
+impl BoardCamera {
+    pub fn new() -> Self {
+        let mut cam = OrbitCamera::new(Vec3::ZERO, OVERVIEW_DIST);
+        cam.pitch = OVERVIEW_PITCH;
+        cam.yaw = 0.0;
+        cam.min_distance = MIN_DIST;
+        cam.max_distance = MAX_DIST;
+        cam.fov_y_radians = 40f32.to_radians();
+        cam.near = 0.5;
+        cam.far = 200.0;
+        Self { goal_target: Vec3::ZERO, goal_yaw: 0.0, goal_pitch: OVERVIEW_PITCH, goal_dist: OVERVIEW_DIST, cam }
+    }
+
+    pub fn overview(&mut self) {
+        self.goal_target = Vec3::ZERO;
+        self.goal_pitch = OVERVIEW_PITCH;
+        self.goal_dist = OVERVIEW_DIST;
+    }
+
+    pub fn focus(&mut self, p: Vec3) {
+        self.goal_target = Self::clamp_target(Vec3::new(p.x, 0.0, p.z));
+        self.goal_dist = self.goal_dist.min(11.0);
+    }
+
+    pub fn set_distance(&mut self, d: f32) {
+        self.goal_dist = d.clamp(MIN_DIST, MAX_DIST);
+    }
+
+    pub fn orbit(&mut self, dx_px: f32, dy_px: f32) {
+        self.goal_yaw -= dx_px * 0.006;
+        self.goal_pitch = (self.goal_pitch + dy_px * 0.005).clamp(MIN_PITCH, MAX_PITCH);
+    }
+
+    pub fn quarter_turn(&mut self, dir: f32) {
+        self.goal_yaw += dir * std::f32::consts::FRAC_PI_2;
+    }
+
+    pub fn zoom(&mut self, wheel: f32) {
+        self.goal_dist = (self.goal_dist * (1.0 - wheel * 0.09)).clamp(MIN_DIST, MAX_DIST);
+    }
+
+    /// `right`/`forward` in -1..1 (keys) or world units scaled by distance (drag).
+    pub fn pan(&mut self, right: f32, forward: f32) {
+        let yaw = self.goal_yaw;
+        let r = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let f = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+        self.goal_target = Self::clamp_target(self.goal_target + r * right + f * forward);
+    }
+
+    pub fn drag_pan(&mut self, dx_px: f32, dy_px: f32) {
+        let k = self.goal_dist * 0.0016;
+        self.pan(-dx_px * k, dy_px * k);
+    }
+
+    fn clamp_target(t: Vec3) -> Vec3 {
+        Vec3::new(t.x.clamp(-PAN_LIMIT, PAN_LIMIT), 0.0, t.z.clamp(-PAN_LIMIT, PAN_LIMIT))
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        let k = 1.0 - (-9.0 * dt).exp();
+        self.cam.target += (self.goal_target - self.cam.target) * k;
+        self.cam.yaw += (self.goal_yaw - self.cam.yaw) * k;
+        self.cam.pitch += (self.goal_pitch - self.cam.pitch) * k;
+        self.cam.distance += (self.goal_dist - self.cam.distance) * k;
+    }
+
+    /// World-space ray through a window pixel.
+    pub fn ray(&self, px: (f32, f32), window: (f32, f32), aspect: f32) -> (Vec3, Vec3) {
+        let ndc = ((px.0 / window.0) * 2.0 - 1.0, 1.0 - (px.1 / window.1) * 2.0);
+        let inv = (self.cam.projection_matrix(aspect) * self.cam.view_matrix()).inverse();
+        let unproject = |z: f32| -> Vec3 {
+            let v: Vec4 = inv * Vec4::new(ndc.0, ndc.1, z, 1.0);
+            v.truncate() / v.w
+        };
+        let (near, far) = (unproject(-1.0), unproject(1.0));
+        (near, (far - near).normalize())
+    }
+
+    pub fn view_proj(&self, aspect: f32) -> Mat4 {
+        self.cam.projection_matrix(aspect) * self.cam.view_matrix()
+    }
+}
+
+/// Intersection of a ray with the horizontal plane at height `y`.
+pub fn ray_plane(origin: Vec3, dir: Vec3, y: f32) -> Option<Vec3> {
+    if dir.y.abs() < 1e-5 {
+        return None;
+    }
+    let t = (y - origin.y) / dir.y;
+    (t > 0.0).then(|| origin + dir * t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_and_pitch_are_clamped() {
+        let mut c = BoardCamera::new();
+        for _ in 0..200 {
+            c.zoom(5.0);
+            c.orbit(0.0, 500.0);
+        }
+        c.update(10.0);
+        assert!(c.cam.distance >= MIN_DIST - 1e-3 && c.cam.pitch <= MAX_PITCH + 1e-3);
+        for _ in 0..200 {
+            c.zoom(-5.0);
+            c.orbit(0.0, -500.0);
+        }
+        c.update(10.0);
+        assert!(c.cam.distance <= MAX_DIST + 1e-3 && c.cam.pitch >= MIN_PITCH - 1e-3);
+    }
+
+    #[test]
+    fn pan_stays_on_board() {
+        let mut c = BoardCamera::new();
+        for _ in 0..100 {
+            c.pan(5.0, 5.0);
+        }
+        c.update(10.0);
+        assert!(c.cam.target.x.abs() <= PAN_LIMIT + 1e-3 && c.cam.target.z.abs() <= PAN_LIMIT + 1e-3);
+    }
+
+    #[test]
+    fn centre_pixel_ray_hits_target() {
+        let mut c = BoardCamera::new();
+        c.update(10.0);
+        let (o, d) = c.ray((400.0, 300.0), (800.0, 600.0), 800.0 / 600.0);
+        let hit = ray_plane(o, d, 0.0).unwrap();
+        assert!(hit.length() < 0.05, "{hit:?}");
+    }
+
+    #[test]
+    fn quarter_turn_rotates_pan_axes() {
+        let mut c = BoardCamera::new();
+        c.quarter_turn(1.0);
+        c.pan(0.0, 1.0); // "forward" after a quarter turn is along world -X
+        c.update(10.0);
+        assert!(c.cam.target.x < -0.9 && c.cam.target.z.abs() < 0.1, "{:?}", c.cam.target);
+    }
+}
