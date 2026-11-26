@@ -308,8 +308,7 @@ impl Ember {
 
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
         let mut st: Vec<Item> = Vec::new();
-        // space: a near-black sheet to catch shadows, and layered nebula clouds
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.3, 0.0), Quat::IDENTITY, Vec3::new(120.0, 0.2, 120.0)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic(lin([6, 7, 14])) }, casts: false });
+        // deep space: layered nebula clouds on the board and a far backdrop below
         let clouds: [(f32, f32, f32, [u8; 3]); 9] = [
             (-9.0, 4.5, 6.0, [70, 30, 120]),
             (9.0, -5.0, 6.5, [20, 80, 140]),
@@ -331,9 +330,8 @@ impl Ember {
         // ---- the printed board: plate, hub, gate ring, wedges, cracks, edge tracks
         let gold = PbrMaterial { emissive: [1.1, 0.8, 0.35], ..PbrMaterial::plastic([0.2, 0.15, 0.05]) };
         let dim_gold = PbrMaterial { emissive: [0.35, 0.26, 0.1], ..PbrMaterial::plastic([0.1, 0.08, 0.03]) };
-        let panel = PbrMaterial { roughness: 0.8, ..PbrMaterial::plastic([0.01, 0.012, 0.03]) };
-        // board plate with a thin gold border
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.06, 0.0), Quat::IDENTITY, Vec3::new(26.0, 0.1, 19.6)), material: PbrMaterial { roughness: 0.6, ..PbrMaterial::plastic([0.006, 0.006, 0.016]) }, casts: false });
+        let panel = PbrMaterial { roughness: 0.8, emissive: [0.004, 0.012, 0.03], ..PbrMaterial::plastic([0.0; 3]) };
+        // board border (no plate: the board floats in space)
         for (x, z, w, d) in [(0.0, -9.85, 26.2, 0.1), (0.0, 9.85, 26.2, 0.1), (-13.05, 0.0, 0.1, 19.8), (13.05, 0.0, 0.1, 19.8)] {
             st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.0, z), Quat::IDENTITY, Vec3::new(w, 0.06, d)), material: dim_gold, casts: false });
         }
@@ -484,19 +482,65 @@ impl Ember {
             static_sys.resize(st.len(), Some(i));
         }
         static_sys.resize(st.len(), None);
-        // starfield dome (not shadow casting)
+        // ---- backdrop: what you see past the board, like a loading-screen vista
         let mut seed = 12345u32;
         let mut rnd = || {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             (seed >> 8) as f32 / (1u32 << 24) as f32
         };
-        for _ in 0..220 {
+        let pal: [[u8; 3]; 7] = [[40, 70, 190], [20, 140, 170], [150, 40, 150], [210, 90, 50], [60, 40, 160], [30, 110, 200], [180, 60, 90]];
+        for k in 0..22 {
+            let c = pal[k % pal.len()];
+            let (x, z) = ((rnd() - 0.5) * 120.0, (rnd() - 0.5) * 90.0);
+            let r0 = 14.0 + rnd() * 26.0;
+            let y0 = -14.0 - k as f32 * 1.6;
+            for layer in 0..14 {
+                let rr = r0 * (1.0 - layer as f32 * 0.065);
+                st.push(Item { mesh: cyl, model: tr(Vec3::new(x + layer as f32 * 0.7, y0 + layer as f32 * 0.02, z), Quat::IDENTITY, Vec3::new(rr * 2.0, 0.01, rr * 1.5)), material: PbrMaterial { roughness: 1.0, emissive: lin(c).map(|v| v * 0.028), ..PbrMaterial::plastic([0.0; 3]) }, casts: false });
+            }
+        }
+        // a vast banded planet low in the frame, and a distant blazing star
+        st.push(Item { mesh: sphere, model: tr(Vec3::new(-75.0, -62.0, 35.0), Quat::IDENTITY, Vec3::splat(34.0)), material: PbrMaterial { roughness: 0.9, emissive: [0.05, 0.1, 0.22], ..PbrMaterial::plastic(lin([30, 50, 90])) }, casts: false });
+        st.push(Item { mesh: sphere, model: tr(Vec3::new(70.0, -50.0, -70.0), Quat::IDENTITY, Vec3::splat(2.2)), material: PbrMaterial { unlit: true, base_color: [30.0, 24.0, 16.0, 1.0], ..PbrMaterial::default() }, casts: false });
+        // stars are baked into a few batches (brightness tier x tint): ~10 draws, not thousands
+        let mut batches: Vec<models::MeshBuilder> = (0..10).map(|_| models::MeshBuilder::default()).collect();
+        let tier_b = [0.9f32, 1.6, 2.6, 4.2, 9.0];
+        let star = primitives::uv_sphere(6, 4);
+        let put = |bs: &mut Vec<models::MeshBuilder>, p: Vec3, size: f32, tier: usize, warm: bool| {
+            bs[tier * 2 + warm as usize].add(&star, tr(p, Quat::IDENTITY, Vec3::splat(size)));
+        };
+        for _ in 0..1400 {
             let az = rnd() * TAU;
-            let el = 0.05 + rnd() * 1.1;
-            let r = 110.0;
+            let el = (rnd() * 2.0 - 1.0) * 1.35;
+            let r = 170.0;
             let p = Vec3::new(az.cos() * el.cos() * r, el.sin() * r - 4.0, az.sin() * el.cos() * r);
-            let b = 0.6 + rnd() * 2.4;
-            st.push(Item { mesh: sphere, model: tr(p, Quat::IDENTITY, Vec3::splat(0.18 + rnd() * 0.3)), material: PbrMaterial { unlit: true, base_color: [b, b, b * 1.1, 1.0], ..PbrMaterial::default() }, casts: false });
+            let big = rnd() < 0.04;
+            let tier = if big { 4 } else { (rnd() * 3.99) as usize };
+            put(&mut batches, p, if big { 1.6 } else { 0.35 + rnd() * 0.5 }, tier, rnd() < 0.4);
+        }
+        for k in 0..900 {
+            let u = (k as f32 / 900.0 - 0.5) * 260.0;
+            let off = (rnd() + rnd() + rnd() - 1.5) * 16.0;
+            let (ca, sa) = (0.42f32.cos(), 0.42f32.sin());
+            let p = Vec3::new(u * ca - off * sa, -64.0 - rnd() * 6.0, u * sa + off * ca);
+            put(&mut batches, p, 0.3 + rnd() * 0.5, (rnd() * 4.99) as usize, rnd() < 0.5);
+        }
+        for _ in 0..700 {
+            let p = Vec3::new((rnd() - 0.5) * 240.0, -70.0 - rnd() * 10.0, (rnd() - 0.5) * 240.0);
+            put(&mut batches, p, 0.35 + rnd() * 0.5, (rnd() * 3.99) as usize, rnd() < 0.5);
+        }
+        for (i, bm) in batches.into_iter().enumerate() {
+            if bm.is_empty() {
+                continue;
+            }
+            let mesh = self.upload(gl, &bm.finish())?;
+            let b = tier_b[i / 2];
+            let c = if i % 2 == 1 { [b * 1.25, b * 0.9, b * 0.65] } else { [b * 0.8, b * 0.95, b * 1.25] };
+            st.push(Item { mesh, model: Mat4::IDENTITY, material: PbrMaterial { unlit: true, base_color: [c[0], c[1], c[2], 1.0], ..PbrMaterial::default() }, casts: false });
+        }
+        for l in 0..10 {
+            let w = 34.0 - l as f32 * 2.8;
+            st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -66.0 + l as f32 * 0.02, 0.0), Quat::from_rotation_y(-0.42), Vec3::new(300.0, 0.02, w)), material: PbrMaterial { roughness: 1.0, emissive: [0.05, 0.04, 0.07].map(|v| v * 0.8), ..PbrMaterial::plastic([0.0; 3]) }, casts: false });
         }
         static_sys.resize(st.len(), None);
         self.static_sys = static_sys;
@@ -590,6 +634,23 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [2.6, 1.5, 0.5], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
+        // drifting space dust: glowing motes that wander through the board's volume
+        for k in 0..110u32 {
+            let h = |n: u32| {
+                let x = (k.wrapping_mul(2654435761).wrapping_add(n.wrapping_mul(40503))) ^ (k << 7);
+                let x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+                (x >> 8) as f32 / (1u32 << 24) as f32
+            };
+            let t = self.clock * (0.04 + h(1) * 0.08);
+            let x = ((h(2) * 44.0 + t * 3.0 + (self.clock * 0.7 + h(6) * 6.0).sin() * 0.4).rem_euclid(44.0)) - 22.0;
+            let z = ((h(3) * 32.0 - t * 1.6 + (self.clock * 0.5 + h(7) * 6.0).cos() * 0.4).rem_euclid(32.0)) - 16.0;
+            let y = 0.4 + h(4) * 7.5 + (self.clock * 0.3 + h(8) * 6.0).sin() * 0.25;
+            let tw = 0.55 + 0.45 * (self.clock * (0.8 + h(5) * 2.0) + h(9) * 6.0).sin();
+            let warm = h(10);
+            let col = if warm < 0.5 { [1.0, 0.8, 0.55] } else { [0.6, 0.8, 1.0] };
+            let sz = 0.05 + h(11) * 0.11;
+            out.push(Item { mesh: self.sphere_mesh, model: tr(Vec3::new(x, y, z), Quat::IDENTITY, Vec3::splat(sz)), material: PbrMaterial { unlit: true, base_color: [col[0] * 4.0 * tw, col[1] * 4.0 * tw, col[2] * 4.0 * tw, 1.0], ..PbrMaterial::default() }, casts: false });
+        }
         // power tokens along the bottom track
         for p in 0..n {
             let pw = (s.power(p).max(0) as f32).min(50.0);
@@ -602,8 +663,8 @@ impl Ember {
         for k in 0..5 {
             if ranks[k] > 0 {
                 let z = -6.4 + k as f32 * 2.1;
-                let g = [0.55, 0.38, 0.25][(ranks[k] as usize - 1).min(2)];
-                out.push(Item { mesh: self.bar_mesh, model: tr(Vec3::new(11.3, 0.06, z), Quat::IDENTITY, Vec3::new(2.9, 0.02, 1.7)), material: PbrMaterial { emissive: [g, g * 0.6, g * 0.2], ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+                let g = [0.32, 0.22, 0.15][(ranks[k] as usize - 1).min(2)];
+                out.push(Item { mesh: self.bar_mesh, model: tr(Vec3::new(11.3, 0.06, z), Quat::IDENTITY, Vec3::new(2.9, 0.02, 1.7)), material: PbrMaterial { emissive: [g * 0.5, g * 0.9, g * 1.4], ..PbrMaterial::plastic([0.0; 3]) }, casts: false });
             }
         }
         // chapter track: five discs, lit up to the current chapter
