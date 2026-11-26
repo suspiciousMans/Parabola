@@ -1,0 +1,8 @@
+[package]
+name = "reach_rules"
+version = "0.1.0"
+edition = "2021"
+description = "Ember Reach rules: Oxidized source, transpiled at build time, with a typed Rust wrapper"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
