@@ -276,6 +276,10 @@ impl State {
         let t = ox::planet_type(Dv::Int(sys as i64)).as_i64();
         (t >= 0).then_some(t as usize)
     }
+    /// Action pips on a card (suit 0..4, number 1..=7).
+    pub fn card_pips(suit: usize, number: u8) -> i64 {
+        ox::card_pips(Dv::Int(suit as i64), Dv::Int(number as i64)).as_i64()
+    }
     pub fn planet_slots(sys: usize) -> usize {
         ox::planet_slots(Dv::Int(sys as i64)).as_i64() as usize
     }
