@@ -1,11 +1,18 @@
 //! egui screens: start menu, in-game HUD (scores, hand, actions, log), game over.
 
-use egui::{self, Color32, RichText};
+use egui::{self, Color32, FontFamily, FontId, RichText};
 use reach_rules::{Action, Card, Kind, Phase, Slot, State, AMBITIONS, RESOURCES, SUITS, SYSTEMS};
 
 pub const NAMES: [&str; 4] = ["Crimson", "Azure", "Amber", "Verdant"];
-/// sRGB, for UI.
-pub const COLORS_UI: [[u8; 3]; 4] = [[222, 58, 52], [58, 120, 245], [243, 190, 40], [70, 214, 140]];
+/// Player colours (sRGB): distinct but muted, so they sit on a dark board without glowing.
+pub const COLORS_UI: [[u8; 3]; 4] = [[196, 72, 64], [76, 128, 212], [212, 164, 66], [92, 176, 128]];
+
+// Palette: tinted neutrals, one brass accent, red only for alerts. See docs/STYLE.md.
+pub const INK: Color32 = Color32::from_rgb(222, 224, 228);
+pub const DIM: Color32 = Color32::from_rgb(138, 146, 160);
+pub const PANEL: Color32 = Color32::from_rgba_premultiplied(12, 15, 21, 226);
+pub const HAIR: Color32 = Color32::from_rgb(54, 61, 76);
+pub const BRASS: Color32 = Color32::from_rgb(214, 164, 86);
 
 pub fn ui_color(p: usize) -> Color32 {
     let c = COLORS_UI[p];
@@ -14,25 +21,66 @@ pub fn ui_color(p: usize) -> Color32 {
 
 pub fn suit_color(s: usize) -> Color32 {
     match s {
-        0 => Color32::from_rgb(160, 110, 230),
-        1 => Color32::from_rgb(225, 80, 70),
-        2 => Color32::from_rgb(230, 170, 60),
-        _ => Color32::from_rgb(70, 160, 230),
+        0 => Color32::from_rgb(146, 118, 188),
+        1 => Color32::from_rgb(196, 86, 76),
+        2 => Color32::from_rgb(206, 160, 76),
+        _ => Color32::from_rgb(84, 142, 196),
     }
 }
 
 pub fn res_color(t: usize) -> Color32 {
-    let c = [[200, 160, 100], [240, 120, 60], [210, 80, 80], [110, 200, 230], [190, 120, 240]][t];
+    let c = [[176, 150, 112], [205, 125, 70], [176, 78, 72], [120, 176, 196], [150, 120, 196]][t];
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// Translucent "holographic" panel frame.
-pub fn glass() -> egui::Frame {
-    egui::Frame::none()
-        .fill(Color32::from_rgba_unmultiplied(8, 14, 28, 175))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(110, 190, 255, 120)))
-        .rounding(8.0)
-        .inner_margin(8.0)
+/// Heading text: Chakra Petch. Body text is IBM Plex Sans (both SIL OFL, see assets/fonts).
+pub fn head(text: impl Into<String>, size: f32) -> RichText {
+    RichText::new(text.into()).font(FontId::new(size, FontFamily::Name("head".into())))
+}
+
+/// One-time font and style setup.
+pub fn theme(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert("chakra".into(), egui::FontData::from_static(include_bytes!("../assets/fonts/ChakraPetch_600SemiBold.ttf")));
+    fonts.font_data.insert("plex".into(), egui::FontData::from_static(include_bytes!("../assets/fonts/IBMPlexSans_400Regular.ttf")));
+    fonts.font_data.insert("plex_med".into(), egui::FontData::from_static(include_bytes!("../assets/fonts/IBMPlexSans_500Medium.ttf")));
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "plex".into());
+    fonts.families.insert(FontFamily::Name("head".into()), vec!["chakra".into(), "plex_med".into()]);
+    ctx.set_fonts(fonts);
+
+    let mut style = (*ctx.style()).clone();
+    style.text_styles.insert(egui::TextStyle::Body, FontId::new(13.5, FontFamily::Proportional));
+    style.text_styles.insert(egui::TextStyle::Button, FontId::new(13.5, FontFamily::Proportional));
+    style.text_styles.insert(egui::TextStyle::Small, FontId::new(11.5, FontFamily::Proportional));
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    let v = &mut style.visuals;
+    v.override_text_color = Some(INK);
+    v.window_fill = PANEL;
+    v.panel_fill = Color32::TRANSPARENT;
+    v.window_rounding = 2.0.into();
+    v.selection.bg_fill = BRASS.gamma_multiply(0.35);
+    v.selection.stroke = egui::Stroke::new(1.0, BRASS);
+    let r = egui::Rounding::same(2.0);
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, HAIR);
+    v.widgets.inactive.weak_bg_fill = Color32::from_rgb(26, 30, 40);
+    v.widgets.inactive.bg_fill = Color32::from_rgb(26, 30, 40);
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, HAIR);
+    v.widgets.inactive.rounding = r;
+    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(38, 44, 58);
+    v.widgets.hovered.bg_fill = Color32::from_rgb(38, 44, 58);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, BRASS);
+    v.widgets.hovered.rounding = r;
+    v.widgets.active.weak_bg_fill = BRASS.gamma_multiply(0.4);
+    v.widgets.active.bg_fill = BRASS.gamma_multiply(0.4);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, BRASS);
+    v.widgets.active.rounding = r;
+    ctx.set_style(style);
+}
+
+/// A flat panel: near-black tinted fill, one hairline, square-ish corners. No glow.
+pub fn panel() -> egui::Frame {
+    egui::Frame::none().fill(PANEL).stroke(egui::Stroke::new(1.0, HAIR)).rounding(2.0).inner_margin(12.0)
 }
 
 pub fn card_label(c: Card) -> String {
@@ -58,14 +106,14 @@ impl Default for MenuState {
 /// Returns true when "Start" is pressed.
 pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
     let mut start = false;
-    egui::Area::new(egui::Id::new("menu")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-        glass().inner_margin(24.0).show(ui, |ui| {
-            ui.set_width(340.0);
-            ui.vertical_centered(|ui| {
-                ui.label(RichText::new("EMBER REACH").size(34.0).strong().color(Color32::from_rgb(255, 170, 70)));
-                ui.label(RichText::new("a fading star cluster, three chapters, one victor").italics());
-            });
-            ui.add_space(14.0);
+    egui::Area::new(egui::Id::new("menu")).anchor(egui::Align2::LEFT_CENTER, [64.0, 0.0]).show(ctx, |ui| {
+        ui.set_width(330.0);
+        ui.label(head("EMBER REACH", 40.0));
+        ui.label(RichText::new("A fading star cluster. Five chapters, one victor.").color(DIM));
+        ui.add_space(22.0);
+        panel().show(ui, |ui| {
+            ui.set_width(306.0);
+            ui.label(head("TABLE", 12.0).color(DIM));
             ui.horizontal(|ui| {
                 ui.label("Players");
                 for n in 2..=4 {
@@ -78,29 +126,24 @@ pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
                     ui.selectable_value(&mut m.setup, k, (k + 1).to_string());
                 }
             });
-            ui.add_space(6.0);
+            ui.add_space(4.0);
+            ui.label(head("SEATS", 12.0).color(DIM));
             for p in 0..m.players {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{:<8}", NAMES[p])).color(ui_color(p)).strong());
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(4.0, 18.0), egui::Sense::hover());
+                    ui.painter().rect_filled(r, 0.0, ui_color(p));
+                    ui.label(head(NAMES[p].to_uppercase(), 14.0));
                     ui.selectable_value(&mut m.bots[p], false, "Human");
                     ui.selectable_value(&mut m.bots[p], true, "Bot");
                 });
             }
-            ui.add_space(14.0);
-            ui.vertical_centered(|ui| {
-                if ui.add_sized([180.0, 36.0], egui::Button::new(RichText::new("Start game").size(18.0))).clicked() {
-                    start = true;
-                }
-            });
-            ui.add_space(10.0);
-            ui.label(
-                RichText::new(
-                    "Right-drag orbit · middle-drag or WASD pan · wheel zoom\nQ/E turn · Space overview · double-click a system to focus",
-                )
-                .small()
-                .weak(),
-            );
         });
+        ui.add_space(14.0);
+        if ui.add_sized([306.0, 38.0], egui::Button::new(head("BEGIN", 16.0).color(Color32::from_rgb(20, 16, 10))).fill(BRASS)).clicked() {
+            start = true;
+        }
+        ui.add_space(14.0);
+        ui.label(RichText::new("Right-drag orbit  ·  middle-drag or WASD pan  ·  wheel zoom\nQ/E turn  ·  Space overview  ·  C cinematic camera").small().color(DIM));
     });
     start
 }
@@ -179,77 +222,81 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     {
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("gates")));
         for (t, p) in h.labels {
-            painter.circle_filled(egui::pos2(p[0], p[1]), 11.0, Color32::from_rgba_unmultiplied(6, 8, 20, 210));
-            painter.text(egui::pos2(p[0], p[1]), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(18.0), Color32::from_rgb(255, 220, 150));
+            let c = egui::pos2(p[0], p[1]);
+            painter.circle_filled(c, 10.0, Color32::from_rgba_unmultiplied(10, 12, 18, 215));
+            painter.circle_stroke(c, 10.0, egui::Stroke::new(1.0, BRASS.gamma_multiply(0.7)));
+            painter.text(c, egui::Align2::CENTER_CENTER, t, FontId::new(12.5, FontFamily::Name("head".into())), BRASS);
         }
     }
 
-    // ---- top bar
-    egui::TopBottomPanel::top("topbar").frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 8.0))).show_separator_line(false).show(ctx, |ui| {
-        glass().show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(format!("CHAPTER {} / 5", s.chapter())).strong().size(15.0).color(Color32::from_rgb(150, 210, 255)));
-                let ranks = s.ambition_ranks();
-                let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
-                declared.sort();
-                for (r, a) in &declared {
-                    ui.label(RichText::new(format!("• {} {}", ["1st", "2nd", "3rd"][*r as usize - 1], AMBITIONS[*a])).color(Color32::from_rgb(255, 200, 120)));
-                }
-                if declared.is_empty() {
-                    ui.label(RichText::new("no ambitions declared").weak());
-                }
-                ui.separator();
-                for p in 0..n {
-                    let mark = if p == cur && !s.is_over() { "▶" } else { " " };
-                    let bot = if h.bots[p] { " (bot)" } else { "" };
-                    ui.label(RichText::new(format!("{mark}{}{bot}", NAMES[p])).color(ui_color(p)).strong());
-                    ui.label(RichText::new(format!("Power {}", s.power(p))).strong());
-                    for t in 0..5 {
-                        ui.label(RichText::new(s.resource(p, t).to_string()).color(res_color(t)));
-                    }
-                    let on_board: i64 = (0..SYSTEMS).map(|y| s.ship_count(y, p)).sum();
-                    let cities = (0..SYSTEMS).flat_map(|y| (0..2).map(move |sl| (y, sl))).filter(|&(y, sl)| matches!(s.slot(y, sl), Slot::City { owner, .. } if owner == p)).count();
-                    ui.label(RichText::new(format!("ships {on_board}+{} · cities {cities}", s.reserve(p))).small());
-                    if s.initiative() == p {
-                        ui.label("★");
-                    }
-                    ui.separator();
-                }
-                let mut c = h.cinematic;
-                if ui.checkbox(&mut c, "Cinematic").changed() {
-                    out.toggle_cinematic = true;
-                }
-            });
-        });
-    });
-
-    // ---- resource tray (current player)
-    egui::Area::new(egui::Id::new("tray")).anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -130.0]).show(ctx, |ui| {
-        glass().show(ui, |ui| {
-            ui.label(RichText::new(format!("{} · RESOURCES", NAMES[cur])).small().color(ui_color(cur)));
-            for t in 0..5 {
+    // ---- players (left): who is ahead, what they hold
+    egui::Area::new(egui::Id::new("players")).anchor(egui::Align2::LEFT_TOP, [14.0, 14.0]).show(ctx, |ui| {
+        ui.set_width(236.0);
+        panel().inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
+            for p in 0..n {
+                let active = p == cur && !s.is_over();
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").color(res_color(t)));
-                    ui.label(format!("{:<9}{}", RESOURCES[t], s.resource(cur, t)));
-                    ui.label(RichText::new(format!("  supply {}", s.supply(t))).small().weak());
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(if active { 5.0 } else { 3.0 }, 34.0), egui::Sense::hover());
+                    ui.painter().rect_filled(r, 0.0, ui_color(p).gamma_multiply(if active { 1.0 } else { 0.6 }));
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            let nm = format!("{}{}", NAMES[p].to_uppercase(), if h.bots[p] { "  BOT" } else { "" });
+                            ui.label(head(nm, 13.0).color(if active { INK } else { DIM }));
+                            if s.initiative() == p {
+                                ui.label(head("LEAD", 10.5).color(BRASS));
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(head(s.power(p).to_string(), 20.0));
+                            });
+                        });
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            for t in 0..5 {
+                                let (r, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                                ui.painter().rect_filled(r, 1.0, res_color(t));
+                                ui.label(RichText::new(s.resource(p, t).to_string()).small().color(DIM));
+                                ui.add_space(3.0);
+                            }
+                        });
+                    });
                 });
+                if p + 1 < n {
+                    ui.add_space(2.0);
+                }
             }
-            ui.label(RichText::new(format!("Reserve ships {}   Cities left {}   Ports left {}", s.reserve(cur), s.cities_left(cur), s.ports_left(cur))).small());
         });
     });
 
-    // ---- log (bottom-left)
-    egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_TOP, [14.0, 70.0]).show(ctx, |ui| {
+    // ---- chapter and ambitions (right)
+    egui::Area::new(egui::Id::new("chapter")).anchor(egui::Align2::RIGHT_TOP, [-14.0, 14.0]).show(ctx, |ui| {
+        ui.set_width(170.0);
+        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+            ui.label(head(format!("CHAPTER {} OF 5", s.chapter()), 14.0));
+            let ranks = s.ambition_ranks();
+            let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
+            declared.sort();
+            if declared.is_empty() {
+                ui.label(RichText::new("no ambitions declared").small().color(DIM));
+            }
+            for (r, a) in declared {
+                ui.label(RichText::new(format!("{}  {}", ["FIRST", "SECOND", "THIRD"][r as usize - 1], AMBITIONS[a])).small().color(BRASS));
+            }
+        });
+    });
+
+    // ---- log (bottom-left), quiet
+    egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, [14.0, -12.0]).show(ctx, |ui| {
         ui.set_max_width(300.0);
-        for line in h.log.iter().rev().take(6).rev() {
-            ui.label(RichText::new(line).small().color(Color32::from_gray(190)));
+        for (i, line) in h.log.iter().rev().take(5).rev().enumerate() {
+            let fade = 90 + i as u8 * 30;
+            ui.label(RichText::new(line).small().color(Color32::from_gray(fade.min(170))));
         }
     });
 
     if let Some(t) = h.toast {
-        egui::Area::new(egui::Id::new("toast")).anchor(egui::Align2::CENTER_TOP, [0.0, 110.0]).show(ctx, |ui| {
-            glass().show(ui, |ui| {
-                ui.add(egui::Label::new(RichText::new(t).size(18.0).strong()).wrap_mode(egui::TextWrapMode::Extend));
+        egui::Area::new(egui::Id::new("toast")).anchor(egui::Align2::CENTER_TOP, [0.0, 22.0]).show(ctx, |ui| {
+            panel().inner_margin(egui::Margin::symmetric(16.0, 8.0)).show(ui, |ui| {
+                ui.add(egui::Label::new(head(t, 15.0)).wrap_mode(egui::TextWrapMode::Extend));
             });
         });
     }
@@ -257,14 +304,14 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     // ---- game over
     if s.is_over() {
         egui::Area::new(egui::Id::new("over")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            glass().inner_margin(22.0).show(ui, |ui| {
+            panel().inner_margin(24.0).show(ui, |ui| {
                 let w = s.winner();
-                ui.label(RichText::new(format!("{} wins!", NAMES[w])).size(30.0).strong().color(ui_color(w)));
+                ui.label(head(format!("{} WINS", NAMES[w].to_uppercase()), 30.0).color(ui_color(w)));
                 ui.add_space(8.0);
                 for p in 0..n {
-                    ui.label(RichText::new(format!("{}: {} power", NAMES[p], s.power(p))).color(ui_color(p)));
+                    ui.label(RichText::new(format!("{}   {} power", NAMES[p], s.power(p))).color(if p == w { INK } else { DIM }));
                 }
-                ui.add_space(10.0);
+                ui.add_space(12.0);
                 if ui.button("New game").clicked() {
                     out.new_game = true;
                 }
@@ -277,8 +324,9 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     // ---- hot-seat handoff
     if let Some(seat) = h.handoff {
         egui::Area::new(egui::Id::new("handoff")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            glass().inner_margin(22.0).show(ui, |ui| {
-                ui.label(RichText::new(format!("Pass to {}", NAMES[seat])).size(28.0).strong().color(ui_color(seat)));
+            panel().inner_margin(24.0).show(ui, |ui| {
+                ui.label(head(format!("PASS TO {}", NAMES[seat].to_uppercase()), 26.0).color(ui_color(seat)));
+                ui.add_space(8.0);
                 if ui.button("Ready").clicked() {
                     out.ready = true;
                 }
@@ -288,87 +336,80 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
         return out;
     }
 
-    // ---- bottom: status line, actions, hand
+    // ---- bottom: what to do now, then the hand and its plays
     let human = !h.bots[cur];
-    egui::Area::new(egui::Id::new("hand")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -10.0]).show(ctx, |ui| {
-        ui.set_width((ctx.screen_rect().width() - 380.0).clamp(520.0, 900.0));
-        ui.vertical_centered(|ui| {
-            let status = match (s.phase(), human) {
-                (_, false) => format!("{} (bot) is thinking…", NAMES[cur]),
-                (Phase::Lead, _) => format!("{}: lead a card, or pass to end the chapter", NAMES[cur]),
-                (Phase::Follow, _) => format!(
-                    "{}: follow {} (surpass, copy or pivot), seize, or pass",
-                    NAMES[cur],
-                    s.lead_suit().map(|x| SUITS[x]).unwrap_or("?")
-                ),
-                (Phase::Act, _) => format!(
-                    "{}: {} action{} left ({})",
-                    NAMES[cur],
-                    s.actions_left(),
-                    if s.actions_left() == 1 { "" } else { "s" },
-                    SUITS[s.action_suit()]
-                ),
-                _ => String::new(),
-            };
-            glass().show(ui, |ui| {
-                ui.label(RichText::new(status).strong().color(ui_color(cur)));
-            });
-            if human && !h.busy {
-                let acts = s.legal_actions();
-                let mut show = |ui: &mut egui::Ui, a: Action, out: &mut HudOutput| {
-                    let sys = action_systems(a);
-                    let b = ui.button(action_text(a));
-                    if b.hovered() {
-                        out.hover_systems = sys;
-                    }
-                    if b.clicked() {
-                        out.action = Some(a);
-                    }
-                };
-                if s.phase() == Phase::Act {
-                    let many = acts.len() > 36;
-                    if many && h.selected.is_none() {
-                        ui.label(RichText::new("Click a system on the board to see its actions").small());
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        for a in acts.iter().copied() {
-                            let sys = action_systems(a);
-                            match h.selected {
-                                Some(sel) if !sys.is_empty() && !sys.contains(&sel) => continue,
-                                None if many && !sys.is_empty() => continue,
-                                _ => {}
-                            }
-                            show(ui, a, &mut out);
-                        }
-                    });
-                } else {
-                    ui.horizontal(|ui| {
-                        for c in s.hand(cur) {
-                            ui.vertical(|ui| {
-                                let col = suit_color(c.suit());
-                                egui::Frame::none()
-                                    .fill(col.gamma_multiply(0.22).linear_multiply(0.9))
-                                    .stroke(egui::Stroke::new(1.5, col))
-                                    .rounding(6.0)
-                                    .inner_margin(6.0)
-                                    .show(ui, |ui| {
-                                        ui.label(RichText::new(format!("{}", c.number())).size(26.0).strong().color(Color32::WHITE));
-                                        ui.label(RichText::new(SUITS[c.suit()]).small().color(col));
-                                    });
-                                for a in acts.iter().copied().filter(|a| a.card() == Some(c)) {
-                                    show(ui, a, &mut out);
-                                }
-                            });
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        for a in acts.iter().copied().filter(|a| a.card().is_none()) {
-                            show(ui, a, &mut out);
-                        }
-                    });
-                }
-            }
+    egui::Area::new(egui::Id::new("hand")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -14.0]).show(ctx, |ui| {
+        ui.set_width((ctx.screen_rect().width() - 560.0).clamp(520.0, 900.0));
+        let status = match (s.phase(), human) {
+            (_, false) => format!("{} is thinking", NAMES[cur]),
+            (Phase::Lead, _) => format!("{}: lead a card, or pass to end the chapter", NAMES[cur]),
+            (Phase::Follow, _) => format!("{}: follow {}. Surpass, copy or pivot, seize, or pass", NAMES[cur], s.lead_suit().map(|x| SUITS[x]).unwrap_or("?")),
+            (Phase::Act, _) => format!(
+                "{}: {} {} left ({})",
+                NAMES[cur],
+                s.actions_left(),
+                if s.actions_left() == 1 { "action" } else { "actions" },
+                SUITS[s.action_suit()]
+            ),
+            _ => String::new(),
+        };
+        panel().inner_margin(egui::Margin::symmetric(12.0, 6.0)).show(ui, |ui| {
+            ui.label(head(status, 15.0).color(if human { BRASS } else { DIM }));
         });
+        ui.add_space(6.0);
+        if human && !h.busy {
+            let acts = s.legal_actions();
+            let show = |ui: &mut egui::Ui, a: Action, out: &mut HudOutput| {
+                let sys = action_systems(a);
+                let b = ui.button(action_text(a));
+                if b.hovered() {
+                    out.hover_systems = sys;
+                }
+                if b.clicked() {
+                    out.action = Some(a);
+                }
+            };
+            if s.phase() == Phase::Act {
+                let many = acts.len() > 36;
+                if many && h.selected.is_none() {
+                    ui.label(RichText::new("Select a system on the board to see its actions").small().color(DIM));
+                }
+                ui.horizontal_wrapped(|ui| {
+                    for a in acts.iter().copied() {
+                        let sys = action_systems(a);
+                        match h.selected {
+                            Some(sel) if !sys.is_empty() && !sys.contains(&sel) => continue,
+                            None if many && !sys.is_empty() => continue,
+                            _ => {}
+                        }
+                        show(ui, a, &mut out);
+                    }
+                });
+            } else {
+                ui.horizontal(|ui| {
+                    for c in s.hand(cur) {
+                        let col = suit_color(c.suit());
+                        ui.vertical(|ui| {
+                            egui::Frame::none().fill(Color32::from_rgb(20, 24, 33)).stroke(egui::Stroke::new(1.0, HAIR)).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+                                ui.set_width(86.0);
+                                let (r, _) = ui.allocate_exact_size(egui::vec2(86.0, 3.0), egui::Sense::hover());
+                                ui.painter().rect_filled(r, 0.0, col);
+                                ui.label(head(c.number().to_string(), 26.0));
+                                ui.label(RichText::new(SUITS[c.suit()]).small().color(DIM));
+                            });
+                            for a in acts.iter().copied().filter(|a| a.card() == Some(c)) {
+                                show(ui, a, &mut out);
+                            }
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    for a in acts.iter().copied().filter(|a| a.card().is_none()) {
+                        show(ui, a, &mut out);
+                    }
+                });
+            }
+        }
     });
     out.wants_pointer = ctx.wants_pointer_input();
     out
