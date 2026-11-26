@@ -1,5 +1,6 @@
 import { AMBITIONS, RESOURCES, SUITS, cardName, type Action, type PublicView } from '../game/view';
 import './styles.css';
+import { canRunGame, gameError, isGameRoom, showGame } from './game';
 
 type Status = 'lobby' | 'playing' | 'finished';
 
@@ -12,6 +13,9 @@ type Snapshot = {
   maxPlayers: number;
   you: number | null;
   view: PublicView | null;
+  state: number[] | null;
+  log: number[][];
+  logTotal: number;
   actions: { action: Action; label: string }[];
   winner: number | null;
 };
@@ -124,7 +128,7 @@ function startPolling(): void {
   stopPolling();
   polling = window.setInterval(() => {
     void refresh();
-  }, 1500);
+  }, 800);
 }
 
 async function refresh(): Promise<void> {
@@ -284,7 +288,19 @@ function roomView(snapshot: Snapshot): string {
   </main>`;
 }
 
+function leaveRoom(): void {
+  // The 3D board can't be unloaded, so going back home is a fresh page load.
+  stopPolling();
+  room = null;
+  location.assign('/');
+}
+
 function render(): void {
+  if (isGameRoom(room) && canRunGame()) {
+    showGame(app, room, { submit: (action) => void play(action), leave: leaveRoom }, message || undefined);
+    message = '';
+    return;
+  }
   app.innerHTML = room ? roomView(room) : home();
   message = '';
 
@@ -394,6 +410,7 @@ async function play(action: Action): Promise<void> {
   } catch (error) {
     message = describe(error);
     await refresh();
+    if (isGameRoom(room)) gameError(room, message);
     render();
   }
 }

@@ -148,6 +148,22 @@ pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
     start
 }
 
+/// Seat naming and control when the board is showing a site room.
+pub struct OnlineHud {
+    pub me: usize,
+    pub who: Vec<String>,
+    /// Seats the Worker plays.
+    pub ai: [bool; 4],
+}
+
+/// Shown while the page has not yet handed over a room.
+pub fn loading(ctx: &egui::Context, text: &str) {
+    egui::Area::new(egui::Id::new("loading")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        ui.label(head("EMBER REACH", 40.0));
+        ui.label(RichText::new(text).color(DIM));
+    });
+}
+
 pub struct HudInput<'a> {
     pub state: &'a State,
     pub bots: &'a [bool; 4],
@@ -163,6 +179,7 @@ pub struct HudInput<'a> {
     pub table: &'a crate::cards::Table,
     pub flies: &'a [crate::cards::Fly],
     pub slots: crate::cards::Slots,
+    pub online: Option<&'a OnlineHud>,
 }
 
 #[derive(Default)]
@@ -247,7 +264,11 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                     ui.painter().rect_filled(r, 0.0, ui_color(p).gamma_multiply(if active { 1.0 } else { 0.6 }));
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            let nm = format!("{}{}", NAMES[p].to_uppercase(), if h.bots[p] { "  BOT" } else { "" });
+                            let nm = match h.online {
+                                Some(o) if o.ai[p] => format!("{}  BOT", NAMES[p].to_uppercase()),
+                                Some(o) => format!("{}{}", o.who[p].to_uppercase(), if p == o.me { "  YOU" } else { "" }),
+                                None => format!("{}{}", NAMES[p].to_uppercase(), if h.bots[p] { "  BOT" } else { "" }),
+                            };
                             ui.label(head(nm, 13.0).color(if active { INK } else { DIM }));
                             if s.initiative() == p {
                                 ui.label(head("LEAD", 10.5).color(BRASS));
@@ -348,7 +369,10 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     egui::Area::new(egui::Id::new("hand")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -14.0]).show(ctx, |ui| {
         ui.set_width((ctx.screen_rect().width() - 560.0).clamp(520.0, 900.0));
         let status = match (s.phase(), human) {
-            (_, false) => format!("{} is thinking", NAMES[cur]),
+            (_, false) => match h.online {
+                Some(o) if !o.ai[cur] => format!("Waiting for {}", o.who[cur]),
+                _ => format!("{} is thinking", NAMES[cur]),
+            },
             (Phase::Lead, _) => format!("{}: lead a card, or pass to end the chapter", NAMES[cur]),
             (Phase::Follow, _) => format!("{}: follow {}. Surpass, copy or pivot, seize, or pass", NAMES[cur], s.lead_suit().map(|x| SUITS[x]).unwrap_or("?")),
             (Phase::Act, _) => format!(

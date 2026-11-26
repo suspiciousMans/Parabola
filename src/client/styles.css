@@ -329,3 +329,15 @@ code {
   font-size: 13px;
   color: var(--text);
 }
+
+/* The 3D board fills the window. */
+body.playing { margin: 0; overflow: hidden; background: #0b0d12; }
+.stage { position: fixed; inset: 0; }
+.stage canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+.stagebar {
+  position: fixed; right: 12px; bottom: 10px;
+  display: flex; gap: 14px; align-items: center;
+  padding: 4px 12px; border: 1px solid #2a3140; background: rgba(10, 12, 18, 0.82);
+  color: #9aa4b2; font-size: 12px; letter-spacing: 0.04em; border-radius: 2px;
+}
+.stagebar b { color: #d9a85a; letter-spacing: 0.12em; }

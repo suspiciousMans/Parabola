@@ -517,6 +517,7 @@ dependencies = [
  "glow",
  "log",
  "reach_rules",
+ "serde_json",
 ]
 
 [[package]]
