@@ -153,39 +153,47 @@ fn sky_pixels(w: u32, h: u32) -> Vec<u8> {
             }
             let mask = smooth(0.12, 0.70, region);
 
-            let warp = fbm(d * 2.6 + Vec3::new(2.9, 6.1, 0.4), 2);
-            let body = fbm(d * 4.6 + Vec3::new(9.2, 2.5, 1.8) + Vec3::splat(warp * 1.3), 4);
-            let sheet = smooth(0.40, 0.60, body);
-            let billow = sheet.powf(1.3);
-            let fine = fbm(d * 9.5 + Vec3::new(1.3, 5.7, 2.2), 3);
-            let lace = smooth(0.40, 0.74, fine);
-            let thread = smooth(0.70, 0.90, ridge(d * 14.0 + Vec3::new(5.0, 1.0, 6.0), 2));
+            // Most of the sphere has no gas at all. The mask multiplies every
+            // nebula term, so skip the cloud noise where it is zero: that is
+            // where nearly all of the generation time goes.
+            if mask > 0.0 {
+                let warp = fbm(d * 2.6 + Vec3::new(2.9, 6.1, 0.4), 2);
+                let body = fbm(d * 4.6 + Vec3::new(9.2, 2.5, 1.8) + Vec3::splat(warp * 1.3), 4);
+                let sheet = smooth(0.40, 0.60, body);
+                let billow = sheet.powf(1.3);
+                let fine = fbm(d * 9.5 + Vec3::new(1.3, 5.7, 2.2), 3);
+                let lace = smooth(0.40, 0.74, fine);
+                let thread = smooth(0.70, 0.90, ridge(d * 14.0 + Vec3::new(5.0, 1.0, 6.0), 2));
 
-            // Colour zones: violet where the gas is thin, magenta in the folds,
-            // teal where it cools at the edges.
-            let zone = fbm(d * 2.2 + Vec3::new(7.0, 2.0, 4.0), 2);
-            let mut col = mix(violet, magenta, smooth(0.46, 0.80, zone));
-            let cool = fbm(d * 3.0 + Vec3::new(3.0, 9.0, 1.0), 2);
-            col = mix(col, teal, smooth(0.58, 0.90, cool) * 0.55);
-            col = mix(blue, col, smooth(0.18, 0.55, zone));
+                // Colour zones: violet where the gas is thin, magenta in the
+                // folds, teal where it cools at the edges.
+                let zone = fbm(d * 2.2 + Vec3::new(7.0, 2.0, 4.0), 2);
+                let mut col = mix(violet, magenta, smooth(0.46, 0.80, zone));
+                let cool = fbm(d * 3.0 + Vec3::new(3.0, 9.0, 1.0), 2);
+                col = mix(col, teal, smooth(0.58, 0.90, cool) * 0.55);
+                col = mix(blue, col, smooth(0.18, 0.55, zone));
 
-            let gas = mask * billow * (0.30 + 0.70 * lace) * 0.42;
-            c[0] += col[0] * gas;
-            c[1] += col[1] * gas;
-            c[2] += col[2] * gas;
-
-            // Bright rims where the sheet folds, and thin hot threads.
-            let rim = mask * smooth(0.52, 0.60, body) * smooth(0.72, 0.62, body) * 0.38;
-            let fil = mask * thread * billow * 0.47;
-            c[0] += col[0] * 1.5 * (rim + fil);
-            c[1] += col[1] * 1.5 * (rim + fil);
-            c[2] += col[2] * 1.5 * (rim + fil);
+                let gas = mask * billow * (0.30 + 0.70 * lace) * 0.42;
+                // Bright rims where the sheet folds, and thin hot threads.
+                let rim = mask * smooth(0.52, 0.60, body) * smooth(0.72, 0.62, body) * 0.38;
+                let fil = mask * thread * billow * 0.47;
+                let k = gas + 1.5 * (rim + fil);
+                c[0] += col[0] * k;
+                c[1] += col[1] * k;
+                c[2] += col[2] * k;
+            }
 
             // The band's soft light, and cold dust cutting through everything.
             c = mix(c, [0.045, 0.035, 0.10], band * 0.08);
-            let lane = smooth(0.54, 0.82, ridge(d * 5.0 + Vec3::new(6.0, 3.2, 9.0), 3));
-            let lane2 = smooth(0.55, 0.78, ridge(d * 9.0 + Vec3::new(1.0, 8.0, 2.0), 2));
-            let cut = 1.0 - (lane * 0.72 + lane2 * 0.28);
+            // Dust lanes only matter where they cut visible gas or the band's
+            // own glow; away from both, skipping them is invisible.
+            let cut = if mask > 0.0 || band > 0.003 {
+                let lane = smooth(0.54, 0.82, ridge(d * 5.0 + Vec3::new(6.0, 3.2, 9.0), 3));
+                let lane2 = smooth(0.55, 0.78, ridge(d * 9.0 + Vec3::new(1.0, 8.0, 2.0), 2));
+                1.0 - (lane * 0.72 + lane2 * 0.28)
+            } else {
+                1.0
+            };
             c[0] *= cut;
             c[1] *= cut;
             c[2] *= cut;
