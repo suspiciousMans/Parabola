@@ -26,6 +26,15 @@ pub fn res_color(t: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// Translucent "holographic" panel frame.
+pub fn glass() -> egui::Frame {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(8, 14, 28, 175))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(110, 190, 255, 120)))
+        .rounding(8.0)
+        .inner_margin(8.0)
+}
+
 pub fn card_label(c: Card) -> String {
     c.name()
 }
@@ -50,7 +59,7 @@ impl Default for MenuState {
 pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
     let mut start = false;
     egui::Area::new(egui::Id::new("menu")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-        egui::Frame::popup(ui.style()).inner_margin(24.0).show(ui, |ui| {
+        glass().inner_margin(24.0).show(ui, |ui| {
             ui.set_width(340.0);
             ui.vertical_centered(|ui| {
                 ui.label(RichText::new("EMBER REACH").size(34.0).strong().color(Color32::from_rgb(255, 170, 70)));
@@ -105,6 +114,7 @@ pub struct HudInput<'a> {
     pub toast: Option<&'a str>,
     /// Hot-seat: a human seat that must confirm before its hand is shown.
     pub handoff: Option<usize>,
+    pub cinematic: bool,
 }
 
 #[derive(Default)]
@@ -113,6 +123,7 @@ pub struct HudOutput {
     pub hover_systems: Vec<usize>,
     pub new_game: bool,
     pub ready: bool,
+    pub toggle_cinematic: bool,
     pub overview: bool,
     pub wants_pointer: bool,
 }
@@ -131,14 +142,14 @@ pub fn action_text(a: Action) -> String {
         Kind::Copy => "Copy".into(),
         Kind::Pivot => "Pivot".into(),
         Kind::Pass => "Pass".into(),
-        Kind::Seize => "Seize the initiative".into(),
+        Kind::Seize => "Seize".into(),
         Kind::Prelude => format!("Spend {} · extra action", RESOURCES[v[1] as usize]),
         Kind::EndTurn => "End turn".into(),
         Kind::Tax => format!("Tax {}", sys_name(v[1] as usize)),
         Kind::BuildCity => format!("Build city · {}", sys_name(v[1] as usize)),
         Kind::BuildPort => format!("Build starport · {}", sys_name(v[1] as usize)),
         Kind::BuildShips => format!("Build ships · {}", sys_name(v[1] as usize)),
-        Kind::Move => format!("Move {} · {} → {}", v[3], sys_name(v[1] as usize), sys_name(v[2] as usize)),
+        Kind::Move => format!("Move {} · {} to {}", v[3], sys_name(v[1] as usize), sys_name(v[2] as usize)),
         Kind::Repair => format!("Repair · {}", sys_name(v[1] as usize)),
         Kind::Battle => {
             let (asl, sk, rd) = (v[3] / 49, v[3] / 7 % 7, v[3] % 7);
@@ -162,52 +173,62 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     let n = s.players();
     let cur = s.current();
 
-    // ---- scoreboard (top-left)
-    egui::Area::new(egui::Id::new("scores")).anchor(egui::Align2::LEFT_TOP, [10.0, 10.0]).show(ctx, |ui| {
-        egui::Frame::popup(ui.style()).show(ui, |ui| {
-            ui.label(RichText::new(format!("Chapter {} of 5", s.chapter())).strong().size(16.0));
-            let ranks = s.ambition_ranks();
-            let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
-            declared.sort();
-            let txt = if declared.is_empty() {
-                "No ambitions declared".to_string()
-            } else {
-                declared.iter().map(|(r, a)| format!("{}: {}", ["1st", "2nd", "3rd"][*r as usize - 1], AMBITIONS[*a])).collect::<Vec<_>>().join("   ")
-            };
-            ui.label(RichText::new(txt).color(Color32::from_rgb(255, 200, 120)));
-            ui.add_space(4.0);
-            egui::Grid::new("sb").num_columns(7).spacing([10.0, 3.0]).show(ui, |ui| {
-                for h in ["", "Power", "Resources", "Ships", "Cities", "Trophies", ""] {
-                    ui.label(RichText::new(h).small());
+    // ---- top bar
+    egui::TopBottomPanel::top("topbar").frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 8.0))).show_separator_line(false).show(ctx, |ui| {
+        glass().show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(format!("CHAPTER {} / 5", s.chapter())).strong().size(15.0).color(Color32::from_rgb(150, 210, 255)));
+                let ranks = s.ambition_ranks();
+                let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
+                declared.sort();
+                for (r, a) in &declared {
+                    ui.label(RichText::new(format!("• {} {}", ["1st", "2nd", "3rd"][*r as usize - 1], AMBITIONS[*a])).color(Color32::from_rgb(255, 200, 120)));
                 }
-                ui.end_row();
+                if declared.is_empty() {
+                    ui.label(RichText::new("no ambitions declared").weak());
+                }
+                ui.separator();
                 for p in 0..n {
-                    let mark = if p == cur && !s.is_over() { "▶ " } else { "   " };
-                    let mut name = format!("{mark}{}", NAMES[p]);
-                    if h.bots[p] {
-                        name.push_str(" (bot)");
+                    let mark = if p == cur && !s.is_over() { "▶" } else { " " };
+                    let bot = if h.bots[p] { " (bot)" } else { "" };
+                    ui.label(RichText::new(format!("{mark}{}{bot}", NAMES[p])).color(ui_color(p)).strong());
+                    ui.label(RichText::new(format!("Power {}", s.power(p))).strong());
+                    for t in 0..5 {
+                        ui.label(RichText::new(s.resource(p, t).to_string()).color(res_color(t)));
                     }
-                    ui.label(RichText::new(name).color(ui_color(p)).strong());
-                    ui.label(RichText::new(s.power(p).to_string()).strong());
-                    ui.horizontal(|ui| {
-                        for t in 0..5 {
-                            ui.label(RichText::new(s.resource(p, t).to_string()).color(res_color(t)).strong());
-                        }
-                    });
                     let on_board: i64 = (0..SYSTEMS).map(|y| s.ship_count(y, p)).sum();
-                    ui.label(format!("{on_board}+{}", s.reserve(p)));
                     let cities = (0..SYSTEMS).flat_map(|y| (0..2).map(move |sl| (y, sl))).filter(|&(y, sl)| matches!(s.slot(y, sl), Slot::City { owner, .. } if owner == p)).count();
-                    ui.label(cities.to_string());
-                    ui.label(format!("{}/{}", s.trophies(p), s.captives(p)));
-                    ui.label(if s.initiative() == p { "★ lead" } else { "" });
-                    ui.end_row();
+                    ui.label(RichText::new(format!("ships {on_board}+{} · cities {cities}", s.reserve(p))).small());
+                    if s.initiative() == p {
+                        ui.label("★");
+                    }
+                    ui.separator();
+                }
+                let mut c = h.cinematic;
+                if ui.checkbox(&mut c, "Cinematic").changed() {
+                    out.toggle_cinematic = true;
                 }
             });
         });
     });
 
+    // ---- resource tray (current player)
+    egui::Area::new(egui::Id::new("tray")).anchor(egui::Align2::RIGHT_BOTTOM, [-10.0, -130.0]).show(ctx, |ui| {
+        glass().show(ui, |ui| {
+            ui.label(RichText::new(format!("{} · RESOURCES", NAMES[cur])).small().color(ui_color(cur)));
+            for t in 0..5 {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").color(res_color(t)));
+                    ui.label(format!("{:<9}{}", RESOURCES[t], s.resource(cur, t)));
+                    ui.label(RichText::new(format!("  supply {}", s.supply(t))).small().weak());
+                });
+            }
+            ui.label(RichText::new(format!("Reserve ships {}   Cities left {}   Ports left {}", s.reserve(cur), s.cities_left(cur), s.ports_left(cur))).small());
+        });
+    });
+
     // ---- log (bottom-left)
-    egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0]).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_TOP, [14.0, 70.0]).show(ctx, |ui| {
         ui.set_max_width(300.0);
         for line in h.log.iter().rev().take(6).rev() {
             ui.label(RichText::new(line).small().color(Color32::from_gray(190)));
@@ -215,9 +236,9 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     });
 
     if let Some(t) = h.toast {
-        egui::Area::new(egui::Id::new("toast")).anchor(egui::Align2::CENTER_TOP, [0.0, 18.0]).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(RichText::new(t).size(18.0).strong());
+        egui::Area::new(egui::Id::new("toast")).anchor(egui::Align2::CENTER_TOP, [0.0, 110.0]).show(ctx, |ui| {
+            glass().show(ui, |ui| {
+                ui.add(egui::Label::new(RichText::new(t).size(18.0).strong()).wrap_mode(egui::TextWrapMode::Extend));
             });
         });
     }
@@ -225,7 +246,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     // ---- game over
     if s.is_over() {
         egui::Area::new(egui::Id::new("over")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).inner_margin(22.0).show(ui, |ui| {
+            glass().inner_margin(22.0).show(ui, |ui| {
                 let w = s.winner();
                 ui.label(RichText::new(format!("{} wins!", NAMES[w])).size(30.0).strong().color(ui_color(w)));
                 ui.add_space(8.0);
@@ -245,7 +266,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     // ---- hot-seat handoff
     if let Some(seat) = h.handoff {
         egui::Area::new(egui::Id::new("handoff")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).inner_margin(22.0).show(ui, |ui| {
+            glass().inner_margin(22.0).show(ui, |ui| {
                 ui.label(RichText::new(format!("Pass to {}", NAMES[seat])).size(28.0).strong().color(ui_color(seat)));
                 if ui.button("Ready").clicked() {
                     out.ready = true;
@@ -258,7 +279,8 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
 
     // ---- bottom: status line, actions, hand
     let human = !h.bots[cur];
-    egui::TopBottomPanel::bottom("hand").frame(egui::Frame::none()).show_separator_line(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new("hand")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -10.0]).show(ctx, |ui| {
+        ui.set_width((ctx.screen_rect().width() - 380.0).clamp(520.0, 900.0));
         ui.vertical_centered(|ui| {
             let status = match (s.phase(), human) {
                 (_, false) => format!("{} (bot) is thinking…", NAMES[cur]),
@@ -277,7 +299,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 ),
                 _ => String::new(),
             };
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
+            glass().show(ui, |ui| {
                 ui.label(RichText::new(status).strong().color(ui_color(cur)));
             });
             if human && !h.busy {
@@ -313,7 +335,15 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                         for c in s.hand(cur) {
                             ui.vertical(|ui| {
                                 let col = suit_color(c.suit());
-                                ui.label(RichText::new(format!("{}\n{}", SUITS[c.suit()], c.number())).size(16.0).strong().color(Color32::WHITE).background_color(col.gamma_multiply(0.6)));
+                                egui::Frame::none()
+                                    .fill(col.gamma_multiply(0.22).linear_multiply(0.9))
+                                    .stroke(egui::Stroke::new(1.5, col))
+                                    .rounding(6.0)
+                                    .inner_margin(6.0)
+                                    .show(ui, |ui| {
+                                        ui.label(RichText::new(format!("{}", c.number())).size(26.0).strong().color(Color32::WHITE));
+                                        ui.label(RichText::new(SUITS[c.suit()]).small().color(col));
+                                    });
                                 for a in acts.iter().copied().filter(|a| a.card() == Some(c)) {
                                     show(ui, a, &mut out);
                                 }
@@ -346,7 +376,7 @@ pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
         8 => format!("{} taxes {}", nm(e[1]), sys_name(e[2] as usize)),
         9 => format!("{} builds a {} at {}", nm(e[1]), if e[3] == 1 { "city" } else { "starport" }, sys_name(e[2] as usize)),
         11 => format!("{} builds ships at {}", nm(e[1]), sys_name(e[2] as usize)),
-        12 => format!("{} moves {} ships {} → {}", nm(e[1]), e[4], sys_name(e[2] as usize), sys_name(e[3] as usize)),
+        12 => format!("{} moves {} ships {} to {}", nm(e[1]), e[4], sys_name(e[2] as usize), sys_name(e[3] as usize)),
         13 => format!("{} repairs at {}", nm(e[1]), sys_name(e[2] as usize)),
         14 => format!("{} attacks {} at {}", nm(e[1]), nm(e[3]), sys_name(e[2] as usize)),
         20 => format!("Round over, {} holds the initiative", nm(e[1])),

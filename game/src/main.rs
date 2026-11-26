@@ -145,6 +145,8 @@ struct Ember {
     handoff_seen: Option<usize>,
     clock: f32,
     city_rise: [f32; SYSTEMS],
+    cinematic: bool,
+    cine_moved: bool,
 
     // input
     orbiting: bool,
@@ -207,6 +209,8 @@ impl Ember {
             handoff_seen: None,
             clock: 0.0,
             city_rise: [-10.0; SYSTEMS],
+            cinematic: true,
+            cine_moved: false,
             orbiting: false,
             panning: false,
             ui_wants_pointer: false,
@@ -222,6 +226,9 @@ impl Ember {
             me.menu.players = 3;
             me.menu.bots = [true; 4];
             me.start_game(7);
+        }
+        if args.iter().any(|a| a == "--human") {
+            me.bots[0] = false;
         }
         if let Some(c) = arg_value(&args, "--focus").and_then(|v| v.parse::<usize>().ok()) {
             me.camera.focus(system_pos(c));
@@ -409,14 +416,24 @@ impl Ember {
         let mut at_end = false;
         match ev[0] {
             12 => {
-                fx = Fx::Fly { from: ev[2] as usize, to: ev[3] as usize, n: ev[4] as usize, player: ev[1] as usize };
-                dur = 0.55;
+                let (f, t) = (ev[2] as usize, ev[3] as usize);
+                fx = Fx::Fly { from: f, to: t, n: ev[4] as usize, player: ev[1] as usize };
+                dur = if self.cinematic { 1.3 } else { 0.55 };
                 at_end = true;
+                if self.cinematic && !self.autoplay {
+                    let mid = (system_pos(f) + system_pos(t)) * 0.5;
+                    self.camera.glide_to(mid, 15.0, 0.85);
+                    self.cine_moved = true;
+                }
             }
             14 => {
                 fx = Fx::Battle { system: ev[2] as usize };
-                dur = 0.8;
+                dur = if self.cinematic { 2.0 } else { 0.8 };
                 at_end = true;
+                if self.cinematic && !self.autoplay {
+                    self.camera.glide_to(system_pos(ev[2] as usize), 8.0, 0.7);
+                    self.cine_moved = true;
+                }
             }
             9 => {
                 fx = Fx::Rise { system: ev[2] as usize };
@@ -527,6 +544,7 @@ impl Ember {
             }
         }
         // flying ships
+        let mut trail: Vec<Item> = Vec::new();
         if let Some(Anim { fx: Fx::Fly { from, to, n: fl, player }, t, dur, .. }) = &self.anim {
             let k = (t / dur).clamp(0.0, 1.0);
             let e = k * k * (3.0 - 2.0 * k);
@@ -539,8 +557,17 @@ impl Ember {
                 let d = b - a;
                 let heading = -d.z.atan2(d.x);
                 ship_item(mid, heading, *player, 1.0, 0.0, false);
+                // engine trail: fading glow beads behind the ship
+                let col = lin(ui::COLORS_UI[*player]);
+                for k in 1..=6 {
+                    let e2 = (e - k as f32 * 0.035).max(0.0);
+                    let pos = a.lerp(b, e2) + Vec3::new(0.0, (std::f32::consts::PI * e2).sin() * 1.1 + 0.05, 0.0);
+                    let fade = 1.0 - k as f32 / 7.0;
+                    trail.push(Item { mesh: self.sphere_mesh, model: tr(pos, Quat::IDENTITY, Vec3::splat(0.07 * fade + 0.01)), material: PbrMaterial { emissive: col.map(|v| v * 3.0 * fade + 0.5 * fade), ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+                }
             }
         }
+        out.extend(trail);
         // battle effect
         if let Some(Anim { fx: Fx::Battle { system }, t, dur, .. }) = &self.anim {
             let k = (t / dur).clamp(0.0, 1.0);
@@ -617,6 +644,10 @@ impl Game for Ember {
                 }
             }
             Event::KeyDown { keycode: Some(Keycode::Space), .. } => self.camera.overview(),
+            Event::KeyDown { keycode: Some(Keycode::C), .. } => {
+                self.cinematic = !self.cinematic;
+                self.cine_moved = false;
+            }
             Event::KeyDown { keycode: Some(Keycode::Q), .. } => self.camera.quarter_turn(-1.0),
             Event::KeyDown { keycode: Some(Keycode::E), .. } => self.camera.quarter_turn(1.0),
             Event::MouseButtonDown { mouse_btn: MouseButton::Right, .. } => self.orbiting = true,
@@ -690,6 +721,10 @@ impl Game for Ember {
             }
         }
         let busy = self.anim.is_some() || !self.queue.is_empty();
+        if !busy && self.cine_moved {
+            self.cine_moved = false;
+            self.camera.overview();
+        }
 
         // bots
         if !busy && !self.truth.is_over() && self.bots[self.truth.current()] {
@@ -769,7 +804,7 @@ impl Game for Ember {
             } else {
                 hud_out = ui::hud(
                     ectx,
-                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff },
+                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic },
                 );
             }
         });
@@ -780,6 +815,13 @@ impl Game for Ember {
         if start {
             let seed = (self.clock * 1000.0) as u64 ^ 0x9e37;
             self.start_game(seed);
+        }
+        if hud_out.toggle_cinematic {
+            self.cinematic = !self.cinematic;
+            if !self.cinematic {
+                self.camera.overview();
+                self.cine_moved = false;
+            }
         }
         if hud_out.new_game {
             self.screen = Screen::Menu;
@@ -818,7 +860,7 @@ impl Ember {
         let Some(path) = self.shot.clone() else { return Ok(()) };
         if self.actions_taken >= self.shot_after && self.anim.is_none() && self.queue.is_empty() {
             self.shot_pending += 1;
-            if self.shot_pending == 4 {
+            if self.shot_pending == 12 {
                 let (w, h) = size;
                 let mut px = vec![0u8; (w * h * 4) as usize];
                 unsafe {

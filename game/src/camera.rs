@@ -45,6 +45,13 @@ impl BoardCamera {
         self.goal_dist = self.goal_dist.min(11.0);
     }
 
+    /// Cinematic glide: eased move to `p` at distance `d`, optionally with a new pitch.
+    pub fn glide_to(&mut self, p: Vec3, d: f32, pitch: f32) {
+        self.goal_target = Self::clamp_target(Vec3::new(p.x, 0.0, p.z));
+        self.goal_dist = d.clamp(MIN_DIST, MAX_DIST);
+        self.goal_pitch = pitch.clamp(MIN_PITCH, MAX_PITCH);
+    }
+
     pub fn set_distance(&mut self, d: f32) {
         self.goal_dist = d.clamp(MIN_DIST, MAX_DIST);
     }
