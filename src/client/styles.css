@@ -1,0 +1,331 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --card: #171a21;
+  --line: #2a2f3a;
+  --text: #e7eaf0;
+  --muted: #9aa3b2;
+  --accent: #7cc4ff;
+  --accent-soft: #2a5f8a;
+  --error: #ff8a8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  /* Flex (not a centred grid): a grid item may grow past the viewport to its
+     min-content width, which pushed the card and the scoreboard off-screen. */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 16px;
+  background: radial-gradient(circle at 50% 0%, #1a2030 0%, var(--bg) 55%);
+  color: var(--text);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.card {
+  width: 100%;
+  max-width: 720px;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+/* Long words (invite URLs, resource lists) must wrap rather than widen the card. */
+.card > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+
+.muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: #10131a;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  color: #06121c;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+button.ghost {
+  color: var(--text);
+  background: transparent;
+  border-color: var(--line);
+}
+
+button.link {
+  justify-self: start;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.actions button.action {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 10px;
+  background: #1d2836;
+  color: var(--text);
+  border: 1px solid var(--accent-soft);
+}
+
+.seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.seats li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #10131a;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.tag.you {
+  border-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tag.bot {
+  border-color: #4a3f6b;
+  color: #b38bff;
+}
+
+.seats li.empty {
+  color: var(--muted);
+  border-style: dashed;
+  background: transparent;
+}
+
+.row button {
+  align-self: start;
+}
+
+.score {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+/* Numbers get a fixed narrow column so the resources cell owns the space left. */
+.score th:nth-child(2),
+.score td:nth-child(2),
+.score th:nth-child(4),
+.score td:nth-child(4),
+.score th:nth-child(5),
+.score td:nth-child(5) {
+  width: 54px;
+}
+
+.score th,
+.score td {
+  overflow-wrap: anywhere;
+}
+
+/*
+ * On phone widths five columns leave the resources cell a few characters wide,
+ * so the table becomes one card per player, with the column names as labels.
+ */
+@media (max-width: 560px) {
+  .score thead {
+    display: none;
+  }
+
+  .score,
+  .score tbody,
+  .score tr {
+    display: block;
+    width: 100%;
+  }
+
+  .score tr {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+
+  .score tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .score td,
+  .score th:nth-child(2),
+  .score td:nth-child(2),
+  .score th:nth-child(4),
+  .score td:nth-child(4),
+  .score th:nth-child(5),
+  .score td:nth-child(5) {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    width: auto;
+    padding: 2px 0;
+    border: none;
+  }
+
+  .score td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+
+  .score td[data-label="player"] {
+    font-weight: 600;
+    padding-bottom: 4px;
+  }
+
+  .score td[data-label="player"]::before {
+    content: none;
+  }
+}
+
+.score th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+}
+
+.score td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1f242e;
+}
+
+.score tr.acting td {
+  background: #16202b;
+}
+
+.board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 13px;
+  background: #10131a;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.board li {
+  padding: 5px 10px;
+  border-bottom: 1px solid #1f242e;
+}
+
+.board li:last-child {
+  border-bottom: none;
+}
+
+.chip {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-soft);
+  color: var(--accent);
+  margin: 2px 2px 2px 0;
+}
+
+.error {
+  margin: 0;
+  color: var(--error);
+  font-size: 14px;
+}
+
+.win {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.head {
+  display: grid;
+  gap: 4px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: var(--text);
+}

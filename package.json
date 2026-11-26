@@ -1,0 +1,19 @@
+{
+  "name": "parabola",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build:client": "vite build",
+    "build:worker": "node scripts/build-worker.mjs",
+    "build:rules": "bash scripts/build-rules-wasm.sh",
+    "build": "npm run check && npm run build:client && npm run build:worker",
+    "dev": "wrangler dev --port 3000 --ip 0.0.0.0 --local"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.4.0",
+    "wrangler": "^4.168.0"
+  }
+}

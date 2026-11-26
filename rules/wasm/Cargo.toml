@@ -1,0 +1,17 @@
+[package]
+name = "reach_rules_wasm"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI over the generated Ember Reach rules, for the browser and the Site Worker"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Standalone workspace: the game's workspace members stay untouched.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+panic = "abort"
+codegen-units = 1
