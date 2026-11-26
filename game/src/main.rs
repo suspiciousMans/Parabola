@@ -22,7 +22,7 @@ use dust_engine::sdl2::event::Event;
 use dust_engine::sdl2::keyboard::Keycode;
 use dust_engine::sdl2::mouse::MouseButton;
 use dust_engine::shader::builtin::{PbrMaterial, PointLight, SceneLighting};
-use dust_engine::shader::{ShaderVariantCache, PBR_MESH_FRAG, PBR_MESH_VERT, TONEMAP_COMPOSITE_FRAG};
+use dust_engine::shader::{ShaderVariantCache, PBR_MESH_FRAG, PBR_MESH_VERT};
 use dust_engine::texture::{GpuTexture, TextureFilter};
 use dust_engine::ui::EguiState;
 use reach_rules::{Action, Phase, Slot, State, SYSTEMS};
@@ -272,30 +272,90 @@ impl Ember {
 
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
         let mut st: Vec<Item> = Vec::new();
-        // table and board
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.45, 0.0), Quat::IDENTITY, Vec3::new(64.0, 0.7, 56.0)), material: PbrMaterial { roughness: 0.55, ..PbrMaterial::plastic(lin([60, 38, 26])) }, casts: false });
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.12, 0.0), Quat::IDENTITY, Vec3::new(28.0, 0.3, 26.0)), material: PbrMaterial { roughness: 0.35, metallic: 0.6, ..PbrMaterial::plastic(lin([26, 28, 34])) }, casts: true });
-        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, Vec3::new(26.8, 0.1, 24.8)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic(lin([14, 18, 40])) }, casts: false });
-        for (x, z, r, c) in [(-8.5, 4.5, 4.4, [60u8, 30, 110]), (8.5, -5.0, 5.0, [20, 70, 120]), (0.8, 8.0, 3.2, [110, 40, 70])] {
-            st.push(Item { mesh: cyl, model: tr(Vec3::new(x, 0.052, z), Quat::IDENTITY, Vec3::new(r * 2.0, 0.004, r * 2.0)), material: PbrMaterial { roughness: 1.0, emissive: lin(c).map(|v| v * 0.22), ..PbrMaterial::plastic(lin(c).map(|v| v * 0.1)) }, casts: false });
+        // space: a near-black sheet to catch shadows, and layered nebula clouds
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.3, 0.0), Quat::IDENTITY, Vec3::new(120.0, 0.2, 120.0)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic(lin([6, 7, 14])) }, casts: false });
+        let clouds: [(f32, f32, f32, [u8; 3]); 9] = [
+            (-9.0, 4.5, 6.0, [70, 30, 120]),
+            (9.0, -5.0, 6.5, [20, 80, 140]),
+            (0.8, 9.0, 4.5, [130, 40, 80]),
+            (-3.0, -8.0, 5.5, [40, 40, 130]),
+            (6.0, 7.0, 4.0, [20, 110, 110]),
+            (-12.0, -4.0, 4.5, [110, 50, 90]),
+            (13.0, 3.0, 4.0, [50, 60, 140]),
+            (0.0, 0.0, 5.0, [50, 30, 90]),
+            (-6.0, 11.0, 3.5, [30, 90, 120]),
+        ];
+        for (k, (x, z, r, c)) in clouds.iter().enumerate() {
+            for layer in 0..5 {
+                let rr = r * (1.0 - layer as f32 * 0.17);
+                let y = -0.15 + k as f32 * 0.004 + layer as f32 * 0.0015;
+                st.push(Item { mesh: cyl, model: tr(Vec3::new(*x, y, *z), Quat::IDENTITY, Vec3::new(rr * 2.0, 0.0008, rr * 2.0)), material: PbrMaterial { roughness: 1.0, emissive: lin(*c).map(|v| v * 0.07), ..PbrMaterial::plastic(lin(*c).map(|v| v * 0.04)) }, casts: false });
+            }
         }
         let mut static_sys: Vec<Option<usize>> = vec![None; st.len()];
-        // systems: planets get a platform and a coloured planet, gates a ring
+        // systems: a glowing node disc for ships, a planet per type, a stargate per gate
+        let bar = cube;
         for i in 0..SYSTEMS {
             let p = system_pos(i);
-            let first = st.len();
+            let node_col = if State::planet_type(i).is_some() { [0.25, 0.55, 1.0] } else { [0.2, 0.9, 1.0] };
+            st.push(Item { mesh: cyl, model: tr(p + Vec3::new(0.0, 0.02, 0.0), Quat::IDENTITY, Vec3::new(2.9, 0.02, 2.9)), material: PbrMaterial { roughness: 0.6, emissive: node_col.map(|v| v * 0.02), ..PbrMaterial::plastic([0.004, 0.007, 0.02]) }, casts: false });
+            st.push(Item { mesh: self.ring_mesh, model: tr(p + Vec3::new(0.0, 0.04, 0.0), Quat::IDENTITY, Vec3::splat(0.97)), material: PbrMaterial { emissive: node_col.map(|v| v * 0.7), ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
             if let Some(ty) = State::planet_type(i) {
-                st.push(Item { mesh: platform.hull, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([150, 150, 165]), 0.4), casts: true });
-                st.push(Item { mesh: platform.team, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial::metal(lin([200, 160, 90]), 0.35), casts: true });
-                st.push(Item { mesh: platform.glow, model: tr(p + Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial { emissive: [0.6, 0.4, 0.15], ..PbrMaterial::plastic([0.2, 0.2, 0.2]) }, casts: false });
                 let pc = PLANET_COLORS[ty];
-                st.push(Item { mesh: sphere, model: tr(p + Vec3::new(-1.35, 0.62, -1.15), Quat::IDENTITY, Vec3::splat(0.38)), material: PbrMaterial { roughness: 0.7, emissive: lin(pc).map(|v| v * 0.25), ..PbrMaterial::plastic(lin(pc)) }, casts: true });
+                let c = p + Vec3::new(-1.1, 0.95, -1.25);
+                let pm = PbrMaterial { roughness: 0.55, emissive: lin(pc).map(|v| v * 0.22), ..PbrMaterial::plastic(lin(pc)) };
+                let glow = PbrMaterial { emissive: lin(pc).map(|v| v * 2.4), ..PbrMaterial::plastic([0.1; 3]) };
+                let spin = i as f32 * 0.9;
+                match ty {
+                    0 => {
+                        // Material: rocky world with an asteroid belt
+                        st.push(Item { mesh: sphere, model: tr(c, Quat::IDENTITY, Vec3::splat(0.5)), material: pm, casts: true });
+                        for k in 0..16 {
+                            let a = k as f32 / 16.0 * TAU + spin;
+                            let r = 0.85 + (k % 3) as f32 * 0.06;
+                            st.push(Item { mesh: sphere, model: tr(c + Vec3::new(a.cos() * r, 0.1 * (k % 2) as f32 - 0.05, a.sin() * r), Quat::IDENTITY, Vec3::splat(0.05 + (k % 4) as f32 * 0.012)), material: PbrMaterial::plastic(lin([150, 125, 95])), casts: true });
+                        }
+                    }
+                    1 => {
+                        // Fuel: gas giant with a glowing ring
+                        st.push(Item { mesh: sphere, model: tr(c, Quat::IDENTITY, Vec3::splat(0.55)), material: pm, casts: true });
+                        st.push(Item { mesh: self.ring_mesh, model: tr(c, Quat::from_rotation_z(0.45 + spin * 0.1), Vec3::splat(0.55)), material: glow, casts: false });
+                    }
+                    2 => {
+                        // Weapons: dark world bristling with red spikes
+                        st.push(Item { mesh: sphere, model: tr(c, Quat::IDENTITY, Vec3::splat(0.45)), material: PbrMaterial { roughness: 0.4, metallic: 0.6, emissive: lin(pc).map(|v| v * 0.12), ..PbrMaterial::plastic(lin([60, 30, 34])) }, casts: true });
+                        for k in 0..10 {
+                            let a = k as f32 * 2.399 + spin;
+                            let el = (k as f32 * 0.7).sin() * 0.9;
+                            let d = Vec3::new(a.cos() * el.cos(), el.sin(), a.sin() * el.cos());
+                            st.push(Item { mesh: bar, model: tr(c + d * 0.55, Quat::from_rotation_arc(Vec3::X, d), Vec3::new(0.36, 0.05, 0.05)), material: glow, casts: false });
+                        }
+                    }
+                    3 => {
+                        // Relics: floating crystal shards
+                        for k in 0..3 {
+                            let a = k as f32 * TAU / 3.0 + spin;
+                            let q = Quat::from_rotation_y(a) * Quat::from_rotation_z(0.6) * Quat::from_rotation_x(0.6);
+                            st.push(Item { mesh: bar, model: tr(c + Vec3::new(a.cos() * 0.28, (k as f32) * 0.18 - 0.1, a.sin() * 0.28), q, Vec3::new(0.2, 0.62, 0.2)), material: PbrMaterial { roughness: 0.15, metallic: 0.2, emissive: lin(pc).map(|v| v * 0.9), ..PbrMaterial::plastic(lin(pc)) }, casts: true });
+                        }
+                    }
+                    _ => {
+                        // Psionic: glowing mind-world with orbiting moons
+                        st.push(Item { mesh: sphere, model: tr(c, Quat::IDENTITY, Vec3::splat(0.46)), material: PbrMaterial { roughness: 0.3, emissive: lin(pc).map(|v| v * 1.0), ..PbrMaterial::plastic(lin(pc)) }, casts: false });
+                        for k in 0..3 {
+                            let a = k as f32 * TAU / 3.0 + spin;
+                            st.push(Item { mesh: sphere, model: tr(c + Vec3::new(a.cos() * 0.82, 0.18 * (k as f32 - 1.0), a.sin() * 0.82), Quat::IDENTITY, Vec3::splat(0.09)), material: glow, casts: false });
+                        }
+                    }
+                }
             } else {
-                st.push(Item { mesh: self.ring_mesh, model: tr(p + Vec3::new(0.0, 0.2, 0.0), Quat::IDENTITY, Vec3::splat(1.1)), material: PbrMaterial { emissive: [0.4, 1.6, 2.2], ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
-                st.push(Item { mesh: sphere, model: tr(p + Vec3::new(0.0, 0.3, 0.0), Quat::IDENTITY, Vec3::splat(0.22)), material: PbrMaterial { emissive: [0.8, 2.0, 3.0], ..PbrMaterial::plastic([0.2; 3]) }, casts: false });
+                // Gate: an upright ring with a bright core
+                let c = p + Vec3::new(0.0, 0.85, 0.0);
+                let face = Quat::from_rotation_y(-((i / 4) as f32) * TAU / 6.0) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                st.push(Item { mesh: self.ring_mesh, model: tr(c, face, Vec3::splat(0.58)), material: PbrMaterial { emissive: [0.5, 1.9, 2.8], ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+                st.push(Item { mesh: sphere, model: tr(c, Quat::IDENTITY, Vec3::splat(0.17)), material: PbrMaterial { emissive: [2.0, 4.0, 5.0], ..PbrMaterial::plastic([0.2; 3]) }, casts: false });
             }
             static_sys.resize(st.len(), Some(i));
-            let _ = first;
         }
         static_sys.resize(st.len(), None);
         // starfield dome (not shadow casting)
@@ -394,6 +454,18 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [2.6, 1.5, 0.5], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
+        // out-of-play clusters: drifting dust
+        for sys in 0..SYSTEMS {
+            if s.in_play(sys) {
+                continue;
+            }
+            let c = system_pos(sys);
+            for k in 0..9 {
+                let a = k as f32 * 2.39 + sys as f32 * 1.7 + self.clock * 0.05 * (1.0 + (k % 3) as f32);
+                let r = 0.3 + (k % 5) as f32 * 0.28;
+                out.push(Item { mesh: self.sphere_mesh, model: tr(c + Vec3::new(a.cos() * r, 0.25 + (k % 4) as f32 * 0.15, a.sin() * r), Quat::IDENTITY, Vec3::splat(0.07 + (k % 3) as f32 * 0.04)), material: PbrMaterial { roughness: 1.0, emissive: [0.04, 0.035, 0.05], ..PbrMaterial::plastic(lin([70, 65, 80])) }, casts: false });
+            }
+        }
         // lanes
         for &(a, b) in &self.lanes {
             let (pa, pb) = (system_pos(a), system_pos(b));
@@ -401,7 +473,7 @@ impl Ember {
             let len = d.length() - 2.9;
             let mid = (pa + pb) * 0.5 + Vec3::new(0.0, 0.07, 0.0);
             let rot = Quat::from_rotation_y(-d.z.atan2(d.x));
-            out.push(Item { mesh: self.bar_mesh, model: tr(mid, rot, Vec3::new(len.max(0.1), 0.012, 0.08)), material: PbrMaterial { emissive: [0.18, 0.5, 0.9], ..PbrMaterial::plastic([0.05, 0.1, 0.2]) }, casts: false });
+            out.push(Item { mesh: self.bar_mesh, model: tr(mid, rot, Vec3::new(len.max(0.1), 0.012, 0.08)), material: PbrMaterial { emissive: [0.15, 0.5, 1.0], ..PbrMaterial::plastic([0.05, 0.1, 0.2]) }, casts: false });
         }
         // buildings
         for sys in 0..SYSTEMS {
@@ -518,7 +590,7 @@ impl Ember {
 impl Game for Ember {
     fn init(&mut self, ctx: &mut Context) -> anyhow::Result<()> {
         let gl = ctx.gl_arc();
-        let mut renderer = Renderer::new(&gl, ctx.drawable_size(), 1.0, TONEMAP_COMPOSITE_FRAG)?;
+        let mut renderer = Renderer::new(&gl, ctx.drawable_size(), 1.0, include_str!("bloom.frag"))?;
         renderer.set_shadow_settings(&gl, ShadowSettings::smooth());
         renderer.set_exposure(1.05);
         renderer.set_resolution_scale(1.0);
