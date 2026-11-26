@@ -115,6 +115,8 @@ pub struct HudInput<'a> {
     /// Hot-seat: a human seat that must confirm before its hand is shown.
     pub handoff: Option<usize>,
     pub cinematic: bool,
+    /// Gate numbers: text and screen position in points.
+    pub labels: &'a [(String, [f32; 2])],
 }
 
 #[derive(Default)]
@@ -172,6 +174,15 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     let s = h.state;
     let n = s.players();
     let cur = s.current();
+
+    // ---- gate numbers over the board
+    {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("gates")));
+        for (t, p) in h.labels {
+            painter.circle_filled(egui::pos2(p[0], p[1]), 11.0, Color32::from_rgba_unmultiplied(6, 8, 20, 210));
+            painter.text(egui::pos2(p[0], p[1]), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(18.0), Color32::from_rgb(255, 220, 150));
+        }
+    }
 
     // ---- top bar
     egui::TopBottomPanel::top("topbar").frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 8.0))).show_separator_line(false).show(ctx, |ui| {

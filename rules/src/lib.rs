@@ -276,6 +276,9 @@ impl State {
         let t = ox::planet_type(Dv::Int(sys as i64)).as_i64();
         (t >= 0).then_some(t as usize)
     }
+    pub fn planet_slots(sys: usize) -> usize {
+        ox::planet_slots(Dv::Int(sys as i64)).as_i64() as usize
+    }
     /// Last event as `[kind, a, b, c, d]` (see `set_event` in the rules).
     pub fn event(&self) -> [i64; 5] {
         [self.h(30), self.h(31), self.h(32), self.h(33), self.h(34)]

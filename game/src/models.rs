@@ -186,3 +186,23 @@ pub fn ring() -> MeshData {
 pub fn thin_bar() -> MeshData {
     primitives::cube()
 }
+
+/// A flat annular sector on y=0 (normal up): radii r0..r1, angles a0..a1 (radians).
+pub fn sector(r0: f32, r1: f32, a0: f32, a1: f32) -> MeshData {
+    let n = 12u32;
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for i in 0..=n {
+        let a = a0 + (a1 - a0) * i as f32 / n as f32;
+        let (s, c) = a.sin_cos();
+        for r in [r0, r1] {
+            vertices.push(Vertex { position: [c * r, 0.0, s * r], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0], color: [0.0; 3] });
+        }
+    }
+    for i in 0..n {
+        let k = i * 2;
+        // wound so the upward face is front-facing
+        indices.extend_from_slice(&[k, k + 2, k + 1, k + 1, k + 2, k + 3]);
+    }
+    MeshData { vertices, indices }
+}

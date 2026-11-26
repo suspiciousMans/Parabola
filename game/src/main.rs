@@ -31,17 +31,30 @@ use std::f32::consts::TAU;
 
 type Ev = [i64; 5];
 
-/// Six clusters in a ring, four systems each: arrow, crescent, hex, gate.
+/// Screen angle of cluster/gate `c` (0..6): gate 1 sits at the top and the rest
+/// follow clockwise, 60 degrees apart, as on the printed board.
+fn cluster_angle(c: usize) -> f32 {
+    (-85.0f32).to_radians() + c as f32 * TAU / 6.0
+}
+
+/// Six clusters around a central hub. Each has a gate on the inner ring and
+/// three planets fanning outward: two outer ones either side and a nearer
+/// middle one. Systems are numbered cluster * 4 + (arrow, crescent, hex, gate).
 fn system_pos(i: usize) -> Vec3 {
-    let th = (i / 4) as f32 * TAU / 6.0;
+    let th = cluster_angle(i / 4);
     let (r, da) = match i % 4 {
-        0 => (6.8, -0.28),
-        1 => (4.6, 0.0),
-        2 => (6.8, 0.28),
-        _ => (9.2, 0.0),
+        0 => (7.0, -0.34),
+        1 => (5.4, 0.0),
+        2 => (7.0, 0.34),
+        _ => (2.55, 0.0),
     };
     let a = th + da;
     Vec3::new(a.cos() * r, 0.0, a.sin() * r)
+}
+
+/// Radius of a system's node on the board.
+fn node_radius(i: usize) -> f32 {
+    if i % 4 == 3 { 0.85 } else { 1.2 }
 }
 
 fn lanes_of(s: &State) -> Vec<(usize, usize)> {
@@ -74,7 +87,8 @@ fn ship_slot(system: usize, player: usize, i: usize, n: usize) -> (Vec3, f32) {
     let col = i / 3;
     let cols = n.div_ceil(3);
     let a = sector + (col as f32 - (cols as f32 - 1.0) / 2.0) * 0.40 + lane as f32 * 0.13;
-    let r = 0.94 + lane as f32 * 0.11;
+    let base = if system % 4 == 3 { 0.6 } else { 0.94 };
+    let r = base + lane as f32 * 0.11;
     let p = system_pos(system) + Vec3::new(a.cos() * r, 0.13, a.sin() * r);
     (p, -a - std::f32::consts::FRAC_PI_2) // heading along the ring
 }
@@ -124,6 +138,7 @@ struct Ember {
     ring_mesh: usize,
     bar_mesh: usize,
     sphere_mesh: usize,
+    hex_mesh: usize,
     camera: BoardCamera,
     lighting: SceneLighting,
 
@@ -162,6 +177,14 @@ struct Ember {
     shot_pending: u32,
 }
 
+/// A six-sided stud mesh, uploaded once and cached.
+fn models_hex(me: &mut Ember, gl: &glow::Context) -> anyhow::Result<usize> {
+    if me.hex_mesh == usize::MAX {
+        me.hex_mesh = me.upload(gl, &primitives::cylinder(6))?;
+    }
+    Ok(me.hex_mesh)
+}
+
 fn arg_value(args: &[String], key: &str) -> Option<String> {
     args.iter().position(|a| a == key).and_then(|i| args.get(i + 1).cloned())
 }
@@ -189,6 +212,7 @@ impl Ember {
             ring_mesh: 0,
             bar_mesh: 0,
             sphere_mesh: 0,
+            hex_mesh: usize::MAX,
             camera: BoardCamera::new(),
             lighting,
             screen: Screen::Menu,
@@ -223,9 +247,13 @@ impl Ember {
         };
         me.lanes = lanes_of(&me.truth);
         if autoplay {
-            me.menu.players = 3;
+            me.menu.players = arg_value(&args, "--players").and_then(|v| v.parse().ok()).unwrap_or(3);
             me.menu.bots = [true; 4];
             me.start_game(7);
+        }
+        if args.iter().any(|a| a == "--topdown") {
+            me.camera.glide_to(Vec3::ZERO, 29.0, 1.45);
+            me.cinematic = false;
         }
         if args.iter().any(|a| a == "--human") {
             me.bots[0] = false;
@@ -269,6 +297,7 @@ impl Ember {
     fn build_scene(&mut self, gl: &glow::Context) -> anyhow::Result<()> {
         let cube = self.upload(gl, &primitives::cube())?;
         let cyl = self.upload(gl, &primitives::cylinder(48))?;
+        let tri_mesh = self.upload(gl, &primitives::cylinder(3))?;
         let sphere = self.upload(gl, &primitives::uv_sphere(24, 12))?;
         self.sphere_mesh = sphere;
         self.ring_mesh = self.upload(gl, &models::ring())?;
@@ -299,17 +328,107 @@ impl Ember {
                 st.push(Item { mesh: cyl, model: tr(Vec3::new(*x, y, *z), Quat::IDENTITY, Vec3::new(rr * 2.0, 0.0008, rr * 2.0)), material: PbrMaterial { roughness: 1.0, emissive: lin(*c).map(|v| v * 0.07), ..PbrMaterial::plastic(lin(*c).map(|v| v * 0.04)) }, casts: false });
             }
         }
+        // ---- the printed board: plate, hub, gate ring, wedges, cracks, edge tracks
+        let gold = PbrMaterial { emissive: [1.1, 0.8, 0.35], ..PbrMaterial::plastic([0.2, 0.15, 0.05]) };
+        let dim_gold = PbrMaterial { emissive: [0.35, 0.26, 0.1], ..PbrMaterial::plastic([0.1, 0.08, 0.03]) };
+        let panel = PbrMaterial { roughness: 0.8, ..PbrMaterial::plastic([0.01, 0.012, 0.03]) };
+        // board plate with a thin gold border
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, -0.06, 0.0), Quat::IDENTITY, Vec3::new(26.0, 0.1, 19.6)), material: PbrMaterial { roughness: 0.6, ..PbrMaterial::plastic([0.006, 0.006, 0.016]) }, casts: false });
+        for (x, z, w, d) in [(0.0, -9.85, 26.2, 0.1), (0.0, 9.85, 26.2, 0.1), (-13.05, 0.0, 0.1, 19.8), (13.05, 0.0, 0.1, 19.8)] {
+            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.0, z), Quat::IDENTITY, Vec3::new(w, 0.06, d)), material: dim_gold, casts: false });
+        }
+        // wedge floors: three per cluster, tinted by the planet they hold
+        for c in 0..6 {
+            let th = cluster_angle(c);
+            for (k, kind) in [0usize, 1, 2].iter().enumerate() {
+                let a0 = th + (k as f32 - 1.5) * 0.35;
+                let a1 = a0 + 0.35;
+                let ty = State::planet_type(c * 4 + kind).unwrap_or(0);
+                let col = lin(PLANET_COLORS[ty]);
+                let sm = self.upload(gl, &models::sector(3.45, 9.7, a0, a1))?;
+                st.push(Item { mesh: sm, model: tr(Vec3::new(0.0, 0.005 + 0.001 * k as f32, 0.0), Quat::IDENTITY, Vec3::ONE), material: PbrMaterial { roughness: 1.0, emissive: col.map(|v| v * 0.012), ..PbrMaterial::plastic(col.map(|v| v * 0.006)) }, casts: false });
+                // thin gold wedge boundary
+                let am = a0;
+                let (mid, len) = (Vec3::new(am.cos() * 6.6, 0.02, am.sin() * 6.6), 6.2);
+                st.push(Item { mesh: cube, model: tr(mid, Quat::from_rotation_y(-am), Vec3::new(len, 0.01, 0.035)), material: dim_gold, casts: false });
+            }
+        }
+        // hub, gate ring and emblem
+        st.push(Item { mesh: cyl, model: tr(Vec3::new(0.0, 0.02, 0.0), Quat::IDENTITY, Vec3::new(6.9, 0.04, 6.9)), material: PbrMaterial { roughness: 0.7, emissive: [0.03, 0.025, 0.06], ..PbrMaterial::plastic([0.012, 0.01, 0.03]) }, casts: false });
+        st.push(Item { mesh: cyl, model: tr(Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::new(3.7, 0.04, 3.7)), material: PbrMaterial { roughness: 0.9, ..PbrMaterial::plastic([0.002, 0.002, 0.006]) }, casts: false });
+        st.push(Item { mesh: self.ring_mesh, model: tr(Vec3::new(0.0, 0.08, 0.0), Quat::IDENTITY, Vec3::splat(2.3)), material: gold, casts: false });
+        st.push(Item { mesh: self.ring_mesh, model: tr(Vec3::new(0.0, 0.08, 0.0), Quat::IDENTITY, Vec3::splat(1.2)), material: dim_gold, casts: false });
+        // our own emblem: an eight-point ember star
+        for k in 0..4 {
+            let a = k as f32 * std::f32::consts::FRAC_PI_4;
+            st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, 0.12, 0.0), Quat::from_rotation_y(a), Vec3::new(if k % 2 == 0 { 2.4 } else { 1.6 }, 0.02, 0.07)), material: PbrMaterial { emissive: [2.2, 1.3, 0.5], ..PbrMaterial::plastic([0.2; 3]) }, casts: false });
+        }
+        st.push(Item { mesh: sphere, model: tr(Vec3::new(0.0, 0.16, 0.0), Quat::IDENTITY, Vec3::splat(0.22)), material: PbrMaterial { emissive: [5.0, 3.0, 1.2], ..PbrMaterial::plastic([0.5; 3]) }, casts: false });
+        // hex studs (path markers) round the gate ring, two per gate
+        for c in 0..6 {
+            for off in [-0.2f32, 0.2] {
+                let a = cluster_angle(c) + off;
+                st.push(Item { mesh: models_hex(self, gl)?, model: tr(Vec3::new(a.cos() * 3.55, 0.07, a.sin() * 3.55), Quat::IDENTITY, Vec3::new(0.16, 0.06, 0.16)), material: gold, casts: false });
+            }
+        }
+        // jagged cracks between clusters, as bar chains
+        for c in 0..6 {
+            let a = cluster_angle(c) + TAU / 12.0;
+            let dir = Vec3::new(a.cos(), 0.0, a.sin());
+            let side = Vec3::new(-a.sin(), 0.0, a.cos());
+            let mut prev = dir * 2.0;
+            for k in 1..=18 {
+                let r = 2.0 + k as f32 * 0.42;
+                let jitter = (((c * 31 + k * 17) % 7) as f32 - 3.0) * 0.07 * (1.0 + k as f32 * 0.04);
+                let p = dir * r + side * jitter;
+                let d = p - prev;
+                let mid = (p + prev) * 0.5 + Vec3::new(0.0, 0.03, 0.0);
+                st.push(Item { mesh: cube, model: tr(mid, Quat::from_rotation_y(-d.z.atan2(d.x)), Vec3::new(d.length() + 0.02, 0.012, 0.05 + 0.04 * (1.0 - k as f32 / 20.0))), material: PbrMaterial { emissive: [0.9, 0.8, 0.65], ..PbrMaterial::plastic([0.2; 3]) }, casts: false });
+                prev = p;
+            }
+        }
+        // power track along the bottom edge: 50 cells
+        for i in 0..51 {
+            let x = -11.5 + i as f32 * 0.46;
+            let major = i % 5 == 0;
+            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, 9.2), Quat::IDENTITY, Vec3::new(0.38, 0.02, if major { 0.5 } else { 0.38 })), material: if major { gold } else { dim_gold }, casts: false });
+        }
+        // left edge: deck, surpass/copy/pivot slot, lead slot; top edge: court row
+        for (z, d) in [(-5.6, 3.0), (-0.9, 5.6), (4.6, 3.2)] {
+            st.push(Item { mesh: cube, model: tr(Vec3::new(-11.7, 0.045, z), Quat::IDENTITY, Vec3::new(2.1, 0.03, d)), material: panel, casts: false });
+            st.push(Item { mesh: cube, model: tr(Vec3::new(-11.7, 0.02, z), Quat::IDENTITY, Vec3::new(2.2, 0.01, d + 0.1)), material: dim_gold, casts: false });
+        }
+        for k in 0..5 {
+            let x = -4.8 + k as f32 * 2.4;
+            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.045, -9.0), Quat::IDENTITY, Vec3::new(2.0, 0.03, 1.3)), material: panel, casts: false });
+            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, -9.0), Quat::IDENTITY, Vec3::new(2.1, 0.01, 1.4)), material: dim_gold, casts: false });
+        }
+        // right edge: ambition boxes (lit when declared, see draw_items) and chapter track
+        for k in 0..5 {
+            let z = -6.4 + k as f32 * 2.1;
+            st.push(Item { mesh: cube, model: tr(Vec3::new(11.3, 0.045, z), Quat::IDENTITY, Vec3::new(3.0, 0.03, 1.8)), material: panel, casts: false });
+            st.push(Item { mesh: cube, model: tr(Vec3::new(11.3, 0.02, z), Quat::IDENTITY, Vec3::new(3.1, 0.01, 1.9)), material: dim_gold, casts: false });
+        }
+        for k in 0..3 {
+            st.push(Item { mesh: models_hex(self, gl)?, model: tr(Vec3::new(10.2 + k as f32 * 1.1, 0.04, -8.2), Quat::IDENTITY, Vec3::new(0.45, 0.03, 0.45)), material: dim_gold, casts: false });
+        }
         let mut static_sys: Vec<Option<usize>> = vec![None; st.len()];
         // systems: a glowing node disc for ships, a planet per type, a stargate per gate
         let bar = cube;
         for i in 0..SYSTEMS {
             let p = system_pos(i);
             let node_col = if State::planet_type(i).is_some() { [0.25, 0.55, 1.0] } else { [0.2, 0.9, 1.0] };
-            st.push(Item { mesh: cyl, model: tr(p + Vec3::new(0.0, 0.02, 0.0), Quat::IDENTITY, Vec3::new(2.9, 0.02, 2.9)), material: PbrMaterial { roughness: 0.6, emissive: node_col.map(|v| v * 0.02), ..PbrMaterial::plastic([0.004, 0.007, 0.02]) }, casts: false });
-            st.push(Item { mesh: self.ring_mesh, model: tr(p + Vec3::new(0.0, 0.04, 0.0), Quat::IDENTITY, Vec3::splat(0.97)), material: PbrMaterial { emissive: node_col.map(|v| v * 0.7), ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+            st.push(Item { mesh: cyl, model: tr(p + Vec3::new(0.0, 0.02, 0.0), Quat::IDENTITY, Vec3::new(node_radius(i) * 2.0, 0.02, node_radius(i) * 2.0)), material: PbrMaterial { roughness: 0.6, emissive: node_col.map(|v| v * 0.02), ..PbrMaterial::plastic([0.004, 0.007, 0.02]) }, casts: false });
+            st.push(Item { mesh: self.ring_mesh, model: tr(p + Vec3::new(0.0, 0.04, 0.0), Quat::IDENTITY, Vec3::splat(node_radius(i) / 1.55)), material: PbrMaterial { emissive: node_col.map(|v| v * 0.7), ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+            if State::planet_type(i).is_some() {
+                for sl in 0..State::planet_slots(i) {
+                    let off = Vec3::new(if sl == 0 { -0.45 } else { 0.45 }, 0.05, 0.0);
+                    st.push(Item { mesh: tri_mesh, model: tr(p + off, Quat::IDENTITY, Vec3::new(0.34, 0.015, 0.34)), material: PbrMaterial { emissive: [0.05, 0.1, 0.2], ..PbrMaterial::plastic([0.003, 0.004, 0.01]) }, casts: false });
+                }
+            }
             if let Some(ty) = State::planet_type(i) {
                 let pc = PLANET_COLORS[ty];
-                let c = p + Vec3::new(-1.1, 0.95, -1.25);
+                let c = p + Vec3::new(-0.85, 0.9, -0.85);
                 let pm = PbrMaterial { roughness: 0.55, emissive: lin(pc).map(|v| v * 0.22), ..PbrMaterial::plastic(lin(pc)) };
                 let glow = PbrMaterial { emissive: lin(pc).map(|v| v * 2.4), ..PbrMaterial::plastic([0.1; 3]) };
                 let spin = i as f32 * 0.9;
@@ -471,6 +590,27 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [2.6, 1.5, 0.5], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
+        // power tokens along the bottom track
+        for p in 0..n {
+            let pw = (s.power(p).max(0) as f32).min(50.0);
+            let x = -11.5 + pw * 0.46;
+            let col = lin(ui::COLORS_UI[p]);
+            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.12 + p as f32 * 0.02, 9.2 - 0.5 + p as f32 * 0.32), Quat::IDENTITY, Vec3::new(0.26, 0.22, 0.26)), material: PbrMaterial { roughness: 0.3, metallic: 0.5, emissive: col.map(|v| v * 0.5), ..PbrMaterial::plastic(col) }, casts: false });
+        }
+        // ambition boxes light up with their declaration rank
+        let ranks = s.ambition_ranks();
+        for k in 0..5 {
+            if ranks[k] > 0 {
+                let z = -6.4 + k as f32 * 2.1;
+                let g = [0.55, 0.38, 0.25][(ranks[k] as usize - 1).min(2)];
+                out.push(Item { mesh: self.bar_mesh, model: tr(Vec3::new(11.3, 0.06, z), Quat::IDENTITY, Vec3::new(2.9, 0.02, 1.7)), material: PbrMaterial { emissive: [g, g * 0.6, g * 0.2], ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+            }
+        }
+        // chapter track: five discs, lit up to the current chapter
+        for k in 0..5 {
+            let lit = (k as i64) < s.chapter();
+            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(8.6 + k as f32 * 0.9, 0.06, 8.3), Quat::IDENTITY, Vec3::new(0.34, 0.04, 0.34)), material: PbrMaterial { emissive: if lit { [1.6, 1.0, 0.4] } else { [0.08, 0.06, 0.03] }, ..PbrMaterial::plastic([0.1; 3]) }, casts: false });
+        }
         // out-of-play clusters: drifting dust
         for sys in 0..SYSTEMS {
             if s.in_play(sys) {
@@ -487,7 +627,7 @@ impl Ember {
         for &(a, b) in &self.lanes {
             let (pa, pb) = (system_pos(a), system_pos(b));
             let d = pb - pa;
-            let len = d.length() - 2.9;
+            let len = d.length() - node_radius(a) - node_radius(b) - 0.1;
             let mid = (pa + pb) * 0.5 + Vec3::new(0.0, 0.07, 0.0);
             let rot = Quat::from_rotation_y(-d.z.atan2(d.x));
             out.push(Item { mesh: self.bar_mesh, model: tr(mid, rot, Vec3::new(len.max(0.1), 0.012, 0.08)), material: PbrMaterial { emissive: [0.15, 0.5, 1.0], ..PbrMaterial::plastic([0.05, 0.1, 0.2]) }, casts: false });
@@ -795,6 +935,20 @@ impl Game for Ember {
         let mut start = false;
         let mut hud_out = ui::HudOutput::default();
         let toast = self.toast.as_ref().map(|(s, _)| s.clone());
+        let labels: Vec<(String, [f32; 2])> = {
+            let (ww2, wh2) = ctx.platform.window.size();
+            let vp = self.camera.view_proj(aspect);
+            (0..6)
+                .filter_map(|c| {
+                    let p = system_pos(c * 4 + 3);
+                    let clip = vp * dust_engine::glam::Vec4::new(p.x, 0.9, p.z, 1.0);
+                    (clip.w > 0.0).then(|| {
+                        let (nx, ny) = (clip.x / clip.w, clip.y / clip.w);
+                        ((c + 1).to_string(), [(nx * 0.5 + 0.5) * ww2 as f32, (1.0 - (ny * 0.5 + 0.5)) * wh2 as f32])
+                    })
+                })
+                .collect()
+        };
         let (screen_menu, view_state) = (matches!(self.screen, Screen::Menu), self.view.clone());
         let (bots, log, selected) = (self.bots, self.log.clone(), self.selected);
         let menu = &mut self.menu;
@@ -804,7 +958,7 @@ impl Game for Ember {
             } else {
                 hud_out = ui::hud(
                     ectx,
-                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic },
+                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels },
                 );
             }
         });

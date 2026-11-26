@@ -8,7 +8,7 @@ pub const MIN_PITCH: f32 = 0.45; // ~25 deg
 pub const MAX_PITCH: f32 = 1.45; // ~83 deg
 pub const MIN_DIST: f32 = 5.0;
 pub const MAX_DIST: f32 = 48.0;
-pub const PAN_LIMIT: f32 = 12.0;
+pub const PAN_LIMIT: f32 = 13.0;
 
 pub struct BoardCamera {
     pub cam: OrbitCamera,
@@ -18,8 +18,8 @@ pub struct BoardCamera {
     goal_dist: f32,
 }
 
-const OVERVIEW_PITCH: f32 = 0.96; // 55 deg
-const OVERVIEW_DIST: f32 = 29.0;
+const OVERVIEW_PITCH: f32 = 1.05; // 55 deg
+const OVERVIEW_DIST: f32 = 30.0;
 
 impl BoardCamera {
     pub fn new() -> Self {
