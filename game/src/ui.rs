@@ -160,6 +160,9 @@ pub struct HudInput<'a> {
     pub cinematic: bool,
     /// Gate numbers: text and screen position in points.
     pub labels: &'a [(String, [f32; 2])],
+    pub table: &'a crate::cards::Table,
+    pub flies: &'a [crate::cards::Fly],
+    pub slots: crate::cards::Slots,
 }
 
 #[derive(Default)]
@@ -229,12 +232,16 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
         }
     }
 
+    crate::cards::draw_table(ctx, h.table, h.flies, &h.slots);
+
     // ---- players (left): who is ahead, what they hold
     egui::Area::new(egui::Id::new("players")).anchor(egui::Align2::LEFT_TOP, [14.0, 14.0]).show(ctx, |ui| {
         ui.set_width(236.0);
         panel().inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
             for p in 0..n {
                 let active = p == cur && !s.is_over();
+                let top = ui.cursor().min;
+                crate::cards::note_row(p, egui::pos2(top.x + 120.0, top.y + 17.0));
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(egui::vec2(if active { 5.0 } else { 3.0 }, 34.0), egui::Sense::hover());
                     ui.painter().rect_filled(r, 0.0, ui_color(p).gamma_multiply(if active { 1.0 } else { 0.6 }));
@@ -387,21 +394,21 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 });
             } else {
                 ui.horizontal(|ui| {
-                    for c in s.hand(cur) {
-                        let col = suit_color(c.suit());
+                    let now = ctx.input(|i| i.time);
+                    let mut seen = Vec::new();
+                    for (i, c) in s.hand(cur).into_iter().enumerate() {
                         ui.vertical(|ui| {
-                            egui::Frame::none().fill(Color32::from_rgb(20, 24, 33)).stroke(egui::Stroke::new(1.0, HAIR)).inner_margin(egui::Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
-                                ui.set_width(86.0);
-                                let (r, _) = ui.allocate_exact_size(egui::vec2(86.0, 3.0), egui::Sense::hover());
-                                ui.painter().rect_filled(r, 0.0, col);
-                                ui.label(head(c.number().to_string(), 26.0));
-                                ui.label(RichText::new(SUITS[c.suit()]).small().color(DIM));
-                            });
-                            for a in acts.iter().copied().filter(|a| a.card() == Some(c)) {
+                            let r = crate::cards::hand_card(ui, c, i, now, &mut seen);
+                            let mine: Vec<Action> = acts.iter().copied().filter(|a| a.card() == Some(c)).collect();
+                            if r.clicked() && mine.len() == 1 {
+                                out.action = Some(mine[0]);
+                            }
+                            for a in mine {
                                 show(ui, a, &mut out);
                             }
                         });
                     }
+                    crate::cards::end_hand_frame(&seen);
                 });
                 ui.horizontal(|ui| {
                     for a in acts.iter().copied().filter(|a| a.card().is_none()) {

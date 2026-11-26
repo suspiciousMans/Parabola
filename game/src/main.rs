@@ -7,6 +7,7 @@
 //!   --after N           ...after N actions (default 40)
 
 mod camera;
+mod cards;
 mod models;
 mod planets;
 mod ui;
@@ -26,7 +27,7 @@ use dust_engine::shader::builtin::{PbrMaterial, PointLight, SceneLighting};
 use dust_engine::shader::{ShaderVariantCache, PBR_MESH_FRAG, PBR_MESH_VERT};
 use dust_engine::texture::{GpuTexture, TextureFilter};
 use dust_engine::ui::EguiState;
-use reach_rules::{Action, Phase, Slot, State, SYSTEMS};
+use reach_rules::{Action, Card, Phase, Slot, State, SYSTEMS};
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
 
@@ -154,6 +155,10 @@ struct Ember {
     lanes: Vec<(usize, usize)>,
     static_sys: Vec<Option<usize>>,
     anim: Option<Anim>,
+    table: cards::Table,
+    flies: Vec<cards::Fly>,
+    card_slots: cards::Slots,
+    win: [f32; 2],
     log: Vec<String>,
     toast: Option<(String, f32)>,
     selected: Option<usize>,
@@ -230,6 +235,10 @@ impl Ember {
             lanes: Vec::new(),
             static_sys: Vec::new(),
             anim: None,
+            table: cards::Table::default(),
+            flies: Vec::new(),
+            card_slots: cards::Slots::default(),
+            win: [1280.0, 720.0],
             log: Vec::new(),
             toast: None,
             selected: None,
@@ -281,6 +290,8 @@ impl Ember {
         self.view = s;
         self.queue.clear();
         self.anim = None;
+        self.table = cards::Table::default();
+        self.flies.clear();
         self.log.clear();
         self.selected = None;
         self.handoff_seen = None;
@@ -593,6 +604,72 @@ impl Ember {
         matches!(self.screen, Screen::Play) && !self.truth.is_over() && !self.bots[self.truth.current()]
     }
 
+    fn follow_target(&self, extra: usize) -> [f32; 2] {
+        let s = &self.card_slots;
+        let n = self.table.follows.len() + self.flies.iter().filter(|f| f.land == cards::Land::Follow).count() + extra;
+        let dy = (n as f32 / 2.0) * s.card_w * 0.55;
+        [s.follow[0], s.follow[1] + dy]
+    }
+
+    /// Sends a played card from the hand (or a bot's row) to its slot.
+    fn fly_card(&mut self, ev: Ev, dur: f32) {
+        let p = ev[1] as usize;
+        let human = !self.bots[p];
+        let hand_mid = egui::pos2(self.win[0] * 0.5, self.win[1] - 110.0);
+        let seize = ev[0] == 5;
+        let card = (!seize).then(|| Card(ev[2] as u8));
+        let from = if !human {
+            cards::row_of(p)
+        } else if seize {
+            hand_mid
+        } else {
+            cards::origin_of(card, hand_mid)
+        };
+        let lead = ev[0] == 0;
+        if lead && (self.table.lead.is_some() || !self.table.follows.is_empty()) {
+            self.sweep_table();
+        }
+        let to = if lead { self.card_slots.lead } else { self.follow_target(0) };
+        self.flies.push(cards::Fly {
+            card,
+            from,
+            to: egui::pos2(to[0], to[1]),
+            t: 0.0,
+            dur,
+            flip_from: if human && !seize { 0.0 } else { 1.0 },
+            flip_to: if seize { 1.0 } else { 0.0 },
+            land: if lead { cards::Land::Lead } else { cards::Land::Follow },
+        });
+    }
+
+    /// The table's cards slide to the discard pile.
+    fn sweep_table(&mut self) {
+        let s = self.card_slots;
+        let to = egui::pos2(s.discard[0], s.discard[1]);
+        let mut out = Vec::new();
+        if let Some(c) = self.table.lead.take() {
+            out.push((Some(c), s.lead, 0.0));
+        }
+        let n = self.table.follows.len();
+        for (i, c) in self.table.follows.drain(..).enumerate() {
+            let dy = (i as f32 - (n as f32 - 1.0) / 2.0) * s.card_w * 0.55;
+            let flip = if c.is_some() { 0.0 } else { 1.0 };
+            out.push((c, [s.follow[0], s.follow[1] + dy], flip));
+        }
+        for (i, (card, at, flip)) in out.into_iter().enumerate() {
+            self.flies.push(cards::Fly {
+                card,
+                from: egui::pos2(at[0], at[1]),
+                to,
+                t: -(i as f32) * 0.08,
+                dur: 0.7,
+                flip_from: flip,
+                flip_to: flip,
+                land: cards::Land::Discard,
+            });
+        }
+    }
+
     fn start_anim(&mut self, ev: Ev, after: State, _a: Action) {
         let mut fx = Fx::None;
         let mut dur = 0.18;
@@ -623,7 +700,18 @@ impl Ember {
                 self.city_rise[ev[2] as usize] = self.clock;
                 dur = 0.5;
             }
-            20 | 21 => dur = 0.9,
+            0..=3 => {
+                dur = if self.cinematic { 0.95 } else { 0.5 };
+                self.fly_card(ev, dur);
+            }
+            5 => {
+                dur = if self.cinematic { 0.95 } else { 0.5 };
+                self.fly_card(ev, dur);
+            }
+            20 | 21 => {
+                dur = 0.9;
+                self.sweep_table();
+            }
             _ => {}
         }
         if let Some(line) = ui::describe(ev, &ui::NAMES) {
@@ -927,6 +1015,24 @@ impl Game for Ember {
 
         // animation queue
         let speed = if self.autoplay { 4.0 } else { 1.0 };
+        for f in self.flies.iter_mut() {
+            f.t += dt * speed;
+        }
+        let mut landed = Vec::new();
+        self.flies.retain(|f| {
+            let done = f.t >= f.dur;
+            if done {
+                landed.push(f.clone());
+            }
+            !done
+        });
+        for f in landed {
+            match f.land {
+                cards::Land::Lead => self.table.lead = f.card,
+                cards::Land::Follow => self.table.follows.push(f.card),
+                cards::Land::Discard => {}
+            }
+        }
         if let Some(a) = self.anim.as_mut() {
             a.t += dt * speed;
             if a.t >= a.dur {
@@ -1030,6 +1136,19 @@ impl Game for Ember {
                 })
                 .collect()
         };
+        let (ww3, wh3) = ctx.platform.window.size();
+        self.win = [ww3 as f32, wh3 as f32];
+        {
+            let vp = self.camera.view_proj(aspect);
+            let pt = |x: f32, z: f32| {
+                let c = vp * dust_engine::glam::Vec4::new(x, 0.05, z, 1.0);
+                [(c.x / c.w * 0.5 + 0.5) * ww3 as f32, (1.0 - (c.y / c.w * 0.5 + 0.5)) * wh3 as f32]
+            };
+            let (l, f, d) = (pt(-11.7, 4.6), pt(-11.7, -0.9), pt(-11.7, -5.6));
+            let w = (pt(-10.7, 4.6)[0] - pt(-12.7, 4.6)[0]).abs().clamp(46.0, 96.0);
+            self.card_slots = cards::Slots { lead: l, follow: [f[0], f[1] + w * 0.4], discard: d, card_w: w };
+        }
+        let (table, flies, card_slots) = (self.table.clone(), self.flies.clone(), self.card_slots);
         let (screen_menu, view_state) = (matches!(self.screen, Screen::Menu), self.view.clone());
         let (bots, log, selected) = (self.bots, self.log.clone(), self.selected);
         let menu = &mut self.menu;
@@ -1046,7 +1165,7 @@ impl Game for Ember {
             } else {
                 hud_out = ui::hud(
                     ectx,
-                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels },
+                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels, table: &table, flies: &flies, slots: card_slots },
                 );
             }
         });
