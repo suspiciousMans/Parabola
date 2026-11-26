@@ -10,6 +10,7 @@ mod camera;
 mod cards;
 mod models;
 mod planets;
+mod site;
 mod ui;
 
 use camera::{ray_plane, BoardCamera};
@@ -166,6 +167,15 @@ struct Ember {
     hover_pick: Option<usize>,
     bot_timer: f32,
     handoff_seen: Option<usize>,
+    /// Showing a site room: the Worker owns the game and plays the bots.
+    site: bool,
+    site_seen: i64,
+    site_rev: i64,
+    site_timer: f32,
+    awaiting: bool,
+    /// Seats the local machine plays with bot logic.
+    ai: [bool; 4],
+    online_hud: Option<ui::OnlineHud>,
     clock: f32,
     city_rise: [f32; SYSTEMS],
     cinematic: bool,
@@ -246,6 +256,13 @@ impl Ember {
             hover_pick: None,
             bot_timer: 0.0,
             handoff_seen: None,
+            site: site::enabled(),
+            site_seen: 0,
+            site_rev: -1,
+            site_timer: 0.0,
+            awaiting: false,
+            ai: [false; 4],
+            online_hud: None,
             clock: 0.0,
             city_rise: [-10.0; SYSTEMS],
             cinematic: true,
@@ -283,6 +300,8 @@ impl Ember {
 
     fn start_game(&mut self, seed: u64) {
         self.bots = self.menu.bots;
+        self.ai = self.menu.bots;
+        self.online_hud = None;
         let setups = State::setup_count(self.menu.players);
         let s = State::new(self.menu.players, seed, self.menu.setup % setups);
         self.lanes = lanes_of(&s);
@@ -591,6 +610,12 @@ impl Ember {
     }
 
     fn do_action(&mut self, a: Action) {
+        if self.site {
+            // the Worker applies it; the board follows when the new state arrives
+            site::submit(a);
+            self.awaiting = true;
+            return;
+        }
         let before = self.truth.clone();
         let next = before.apply(a);
         let ev = next.event();
@@ -600,8 +625,88 @@ impl Ember {
         let _ = before;
     }
 
+    // ---- site room ---------------------------------------------------
+
+    fn site_update(&mut self, dt: f32) {
+        self.site_timer -= dt;
+        if self.site_timer > 0.0 {
+            return;
+        }
+        self.site_timer = 0.12;
+        let Some(snap) = site::take() else { return };
+        if let Some(e) = &snap.error {
+            self.awaiting = false;
+            self.toast = Some((format!("Not allowed: {e}"), 2.5));
+        }
+        let state = State(snap.state.clone());
+        if snap.revision != self.site_rev {
+            self.awaiting = false;
+        }
+        self.site_rev = snap.revision;
+        let n = state.players().min(snap.seats.len());
+        let who: Vec<String> = snap.seats.iter().map(|s| s.0.clone()).collect();
+        let mut ai = [false; 4];
+        for (p, s) in snap.seats.iter().enumerate().take(4) {
+            ai[p] = s.1;
+        }
+        if !matches!(self.screen, Screen::Play) || self.online_hud.is_none() {
+            if n == 0 || snap.you >= n {
+                return;
+            }
+            self.site_seen = snap.log_total;
+            self.begin_online(state, snap.you, ai, who);
+            return;
+        }
+        // actions played since we last looked: animate each, then settle on the new state
+        let fresh = ((snap.log_total - self.site_seen).max(0) as usize).min(snap.log.len());
+        self.site_seen = snap.log_total;
+        let old = self.truth.clone();
+        for (i, ev) in snap.log[snap.log.len() - fresh..].iter().enumerate() {
+            let last = i + 1 == fresh;
+            let mut ev = *ev;
+            if !last {
+                // catching up on a run of moves: the cards and the log, not the ship flights
+                ev[0] += 100;
+            }
+            self.queue.push_back((ev, if last { state.clone() } else { old.clone() }, Action([4, 0, 0, 0])));
+            self.actions_taken += 1;
+        }
+        self.truth = state.clone();
+        if fresh == 0 && self.queue.is_empty() && self.anim.is_none() {
+            self.view = state;
+        }
+        if let Some(h) = self.online_hud.as_mut() {
+            h.who = who;
+            h.ai = ai;
+        }
+    }
+
+    /// Enters the board for a room: `me` is this player's seat.
+    fn begin_online(&mut self, s: State, me: usize, ai: [bool; 4], who: Vec<String>) {
+        self.lanes = lanes_of(&s);
+        self.truth = s.clone();
+        self.view = s;
+        self.queue.clear();
+        self.anim = None;
+        self.table = cards::Table::default();
+        self.flies.clear();
+        self.log.clear();
+        self.selected = None;
+        self.handoff_seen = None;
+        self.city_rise = [-10.0; SYSTEMS];
+        self.actions_taken = 0;
+        // every seat but mine is somebody else to the HUD
+        self.bots = [true; 4];
+        self.bots[me] = false;
+        self.ai = [false; 4];
+        self.awaiting = false;
+        self.online_hud = Some(ui::OnlineHud { me, who, ai });
+        self.screen = Screen::Play;
+        self.camera.overview();
+    }
+
     fn human_turn(&self) -> bool {
-        matches!(self.screen, Screen::Play) && !self.truth.is_over() && !self.bots[self.truth.current()]
+        matches!(self.screen, Screen::Play) && !self.truth.is_over() && !self.bots[self.truth.current()] && !(self.site && (self.awaiting || !self.queue.is_empty()))
     }
 
     fn follow_target(&self, extra: usize) -> [f32; 2] {
@@ -671,11 +776,17 @@ impl Ember {
     }
 
     fn start_anim(&mut self, ev: Ev, after: State, _a: Action) {
+        // 100+ marks an event replayed while catching up: no ship flights or battles
+        let quick = ev[0] >= 100;
+        let mut ev = ev;
+        if quick {
+            ev[0] -= 100;
+        }
         let mut fx = Fx::None;
         let mut dur = 0.18;
         let mut at_end = false;
         match ev[0] {
-            12 => {
+            12 if !quick => {
                 let (f, t) = (ev[2] as usize, ev[3] as usize);
                 fx = Fx::Fly { from: f, to: t, n: ev[4] as usize, player: ev[1] as usize };
                 dur = if self.cinematic { 1.3 } else { 0.55 };
@@ -686,7 +797,7 @@ impl Ember {
                     self.cine_moved = true;
                 }
             }
-            14 => {
+            14 if !quick => {
                 fx = Fx::Battle { system: ev[2] as usize };
                 dur = if self.cinematic { 2.0 } else { 0.8 };
                 at_end = true;
@@ -695,7 +806,7 @@ impl Ember {
                     self.cine_moved = true;
                 }
             }
-            9 => {
+            9 if !quick => {
                 fx = Fx::Rise { system: ev[2] as usize };
                 self.city_rise[ev[2] as usize] = self.clock;
                 dur = 0.5;
@@ -946,7 +1057,9 @@ impl Game for Ember {
         }
         match event {
             Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                if matches!(self.screen, Screen::Play) {
+                if self.site {
+                    // the page owns navigation
+                } else if matches!(self.screen, Screen::Play) {
                     self.screen = Screen::Menu;
                 } else {
                     ctx.should_quit = true;
@@ -1009,6 +1122,9 @@ impl Game for Ember {
         if self.toast.as_ref().is_some_and(|(_, t)| *t <= 0.0) {
             self.toast = None;
         }
+        if self.site {
+            self.site_update(dt);
+        }
         if !matches!(self.screen, Screen::Play) {
             return Ok(());
         }
@@ -1054,7 +1170,7 @@ impl Game for Ember {
         }
 
         // bots
-        if !busy && !self.truth.is_over() && self.bots[self.truth.current()] {
+        if !busy && !self.truth.is_over() && self.ai[self.truth.current()] {
             self.bot_timer -= dt * speed;
             if self.bot_timer <= 0.0 {
                 let a = self.truth.bot_choose();
@@ -1149,6 +1265,8 @@ impl Game for Ember {
             self.card_slots = cards::Slots { lead: l, follow: [f[0], f[1] + w * 0.4], discard: d, card_w: w };
         }
         let (table, flies, card_slots) = (self.table.clone(), self.flies.clone(), self.card_slots);
+        let online_hud = self.online_hud.as_ref();
+        let site_mode = self.site;
         let (screen_menu, view_state) = (matches!(self.screen, Screen::Menu), self.view.clone());
         let (bots, log, selected) = (self.bots, self.log.clone(), self.selected);
         let menu = &mut self.menu;
@@ -1160,12 +1278,14 @@ impl Game for Ember {
                 ui::theme(ectx);
                 return;
             }
-            if screen_menu {
+            if screen_menu && site_mode {
+                ui::loading(ectx, "Joining the room…");
+            } else if screen_menu {
                 start = ui::menu(ectx, menu);
             } else {
                 hud_out = ui::hud(
                     ectx,
-                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels, table: &table, flies: &flies, slots: card_slots },
+                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels, table: &table, flies: &flies, slots: card_slots, online: online_hud },
                 );
             }
         });
@@ -1185,6 +1305,9 @@ impl Game for Ember {
             }
         }
         if hud_out.new_game {
+            if self.site {
+                site::leave();
+            }
             self.screen = Screen::Menu;
         }
         if hud_out.ready {

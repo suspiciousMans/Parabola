@@ -53,6 +53,8 @@ game/    ember_reach crate (Dust game)
   src/camera.rs        orbit / pan / zoom / glide camera (tested)
   src/ui.rs            egui menu, scoreboard, hand, action list, log
 web/     browser build: index.html, build.sh, web_smoke.js
+src/     the site: Cloudflare Worker (rooms, validation, bots), page client, game.ts hosts the 3D board
+scripts/ build-game.sh (3D board for the site), build-worker.mjs, build-rules-wasm.sh
 ```
 
 After editing `rules/ox/reach.ox`, run `rules/regen.sh` (needs `oxidized`; set `OXIDIZED=/path/to/oxidized`)
@@ -69,6 +71,27 @@ node web/web_smoke.js dist-web ember_reach shot.png    # headless Chromium: load
 
 The game uses no threads, files or native-only crates, and generates all geometry in code, so there is nothing to preload.
 
+## The site: rooms, bots and online play
+
+`src/` is the site. The Worker (`src/worker`) keeps rooms in D1, validates every action with the shipped
+rules (`src/game/reach_rules.wasm`) and plays bot seats. The page (`src/client`) creates and joins rooms by
+code; once a game starts it loads the 3D board (`src/client/public/game/`, the same Rust game built for the
+browser) and the board is driven by the Worker: the Worker sends each player the state with the other hands
+hidden plus the last events, the board animates them, and the player's clicks go back as actions.
+
+```
+npm ci
+npm run build          # type check, page, Worker
+npm run dev            # wrangler dev --local on http://localhost:3000 (D1 is emulated locally)
+```
+
+Open it in two tabs (each tab is its own player): create a room in one, join with the code in the other,
+add bots if you want, start. `?classic=1` on the page shows the plain HTML board instead of the 3D one.
+
+After changing the game, rebuild the 3D board (needs emsdk, see Web above) and commit the result, so deploys
+don't need Rust: `npm run build:game`. After changing the rules run `rules/regen.sh` and
+`scripts/build-rules-wasm.sh`.
+
 ## Screenshots and autoplay
 
 `ember_reach --autoplay --shot out.png --after 60 [--focus 3]` plays 60 bot actions headlessly (use `xvfb-run`
@@ -76,8 +99,7 @@ on Linux) and saves a frame.
 
 ## Not done yet
 
-LAN/online play (the rules wrapper already validates and serialises actions; wiring it to the Dust turn-based
-networking PR is next), better bots (one heuristic bot today), sound, a rules reference screen, undo, card art.
+Spectators and reconnect polish, a lobby inside the 3D board (the page handles the lobby), better bots (one heuristic bot today), sound, a rules reference screen, undo, card art.
 
 
 See [docs/STYLE.md](docs/STYLE.md) for the art and UI rules.
@@ -94,4 +116,4 @@ card's suit; repair fixes one piece; builds cost no resources; the lead passing 
 marker ranks follow declaration order; ties for first share the second value; destroyed ships are lost;
 the intercept round; catapult moves along any-length paths; seat roles A/B/C on the setup cards.
 
-Deferred: Court, Influence, Secure, Guild and Vox cards, leaders, lore, ambition city bonuses, online play.
+Deferred: Court, Influence, Secure, Guild and Vox cards, leaders, lore, ambition city bonuses.

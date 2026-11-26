@@ -8,7 +8,8 @@
     "build:worker": "node scripts/build-worker.mjs",
     "build:rules": "bash scripts/build-rules-wasm.sh",
     "build": "npm run check && npm run build:client && npm run build:worker",
-    "dev": "wrangler dev --port 3000 --ip 0.0.0.0 --local"
+    "dev": "wrangler dev --port 3000 --ip 0.0.0.0 --local",
+    "build:game": "bash scripts/build-game.sh"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

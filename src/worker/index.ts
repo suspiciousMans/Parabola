@@ -47,7 +47,28 @@ type Status = 'lobby' | 'playing' | 'finished';
 
 type Seat = { id: string; name: string; bot?: boolean };
 
-type Game = { state: GameState; seed: number; setup: number };
+type Game = {
+  state: GameState;
+  seed: number;
+  setup: number;
+  /** The last events (the rules' event header after each action), oldest first. */
+  log?: number[][];
+  /** Actions played so far: `log` holds the last `LOG_KEEP` of them. */
+  logTotal?: number;
+};
+
+const LOG_KEEP = 64;
+
+/** Records the event the rules left in `state` (header slots 30..34) after an action. */
+function advance(game: Game, state: GameState): Game {
+  const event = state.slice(30, 35);
+  return {
+    ...game,
+    state,
+    log: [...(game.log ?? []), event].slice(-LOG_KEEP),
+    logTotal: (game.logTotal ?? 0) + 1,
+  };
+}
 
 type RoomState = { seats: Seat[]; game: Game | null };
 
@@ -69,6 +90,10 @@ type Snapshot = {
   maxPlayers: number;
   you: number | null;
   view: PublicView | null;
+  /** The redacted rules state as `you` may see it: what the 3D board renders. */
+  state: GameState | null;
+  log: number[][];
+  logTotal: number;
   actions: { action: Action; label: string }[];
   winner: number | null;
 };
@@ -202,6 +227,9 @@ function snapshot(row: RoomRow, state: RoomState, me: string | null): Snapshot {
     maxPlayers: MAX_PLAYERS,
     you: seat >= 0 ? seat : null,
     view,
+    state: game ? redact(game.state, seat) : null,
+    log: game?.log ?? [],
+    logTotal: game?.logTotal ?? 0,
     actions,
     winner: over && game ? winnerOf(game.state) : null,
   };
@@ -267,7 +295,7 @@ async function driveBots(env: Env, code: string): Promise<void> {
     }
 
     const finished = isOver(result.state);
-    const next: RoomState = { ...state, game: { ...state.game, state: result.state } };
+    const next: RoomState = { ...state, game: advance(state.game, result.state) };
     const status: Status = finished ? 'finished' : row.status;
 
     // A conflict means another request moved first; reload and re-check.
@@ -443,7 +471,7 @@ async function playAction(request: Request, env: Env, code: string): Promise<Res
     if (!result.ok) return json({ error: result.error }, 409);
 
     const finished = isOver(result.state);
-    const next: RoomState = { ...state, game: { ...state.game, state: result.state } };
+    const next: RoomState = { ...state, game: advance(state.game, result.state) };
     const status: Status = finished ? 'finished' : 'playing';
 
     if (await writeRoom(env, code, row.revision, status, next)) {
