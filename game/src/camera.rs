@@ -14,6 +14,8 @@ pub struct BoardCamera {
     pub cam: OrbitCamera,
     goal_target: Vec3,
     goal_yaw: f32,
+    base_yaw: f32,
+    t: f32,
     goal_pitch: f32,
     goal_dist: f32,
 }
@@ -30,8 +32,8 @@ impl BoardCamera {
         cam.max_distance = MAX_DIST;
         cam.fov_y_radians = 40f32.to_radians();
         cam.near = 0.5;
-        cam.far = 200.0;
-        Self { goal_target: Vec3::ZERO, goal_yaw: 0.0, goal_pitch: OVERVIEW_PITCH, goal_dist: OVERVIEW_DIST, cam }
+        cam.far = 420.0;
+        Self { goal_target: Vec3::ZERO, goal_yaw: 0.0, base_yaw: 0.0, t: 0.0, goal_pitch: OVERVIEW_PITCH, goal_dist: OVERVIEW_DIST, cam }
     }
 
     pub fn overview(&mut self) {
@@ -89,7 +91,10 @@ impl BoardCamera {
     pub fn update(&mut self, dt: f32) {
         let k = 1.0 - (-9.0 * dt).exp();
         self.cam.target += (self.goal_target - self.cam.target) * k;
-        self.cam.yaw += (self.goal_yaw - self.cam.yaw) * k;
+        self.base_yaw += (self.goal_yaw - self.base_yaw) * k;
+        self.t += dt;
+        // a slow idle drift so the board never feels frozen
+        self.cam.yaw = self.base_yaw + (self.t * 0.15).sin() * 0.03;
         self.cam.pitch += (self.goal_pitch - self.cam.pitch) * k;
         self.cam.distance += (self.goal_dist - self.cam.distance) * k;
     }
