@@ -51,8 +51,15 @@ to 0.9, one distinct silhouette per type (rocky with dust belt, banded giant wit
 crystal with shards, violet with moons). Metal is used only on ships, gates and spires. Emissive is for things
 that emit light (engines, gate cores, ember cracks) and kept low.
 
+**Ambient sky.** The board floats in a painted galaxy map (`game/src/galaxy.rs`): one equirect sky pass with
+violet and magenta gas, dark dust lanes and a single hot core, then real star points, drifting stardust and soft
+gas billboards. The sky is a backdrop, never a light source: the gas stays below the HUD's contrast, stars stay
+small, and the core is the only part of the sky hot enough to bloom. The board, its pieces and the HUD remain the
+first, second and third things to read.
+
 **Glow budget.** Bloom threshold 2.0 and strength 0.55, so only genuinely hot pixels bloom. Lanes are thin and
-muted. Stars are small and few bright ones; dust is sparse. If everything glows, nothing is bright.
+muted. Stars are small, many and faint, with a few bright coloured ones; dust is sparse. If everything glows,
+nothing is bright.
 
 **Motion.** Camera moves ease out and are short; one cinematic move per event; a toggle (key `C`) turns them off.
 No bounce.

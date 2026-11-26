@@ -10,7 +10,7 @@ pub const COLORS_UI: [[u8; 3]; 4] = [[196, 72, 64], [76, 128, 212], [212, 164, 6
 // Palette: tinted neutrals, one brass accent, red only for alerts. See docs/STYLE.md.
 pub const INK: Color32 = Color32::from_rgb(222, 224, 228);
 pub const DIM: Color32 = Color32::from_rgb(138, 146, 160);
-pub const PANEL: Color32 = Color32::from_rgba_premultiplied(12, 15, 21, 226);
+pub const PANEL: Color32 = Color32::from_rgba_premultiplied(10, 13, 18, 246);
 pub const HAIR: Color32 = Color32::from_rgb(54, 61, 76);
 pub const BRASS: Color32 = Color32::from_rgb(214, 164, 86);
 
