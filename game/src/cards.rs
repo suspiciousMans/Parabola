@@ -13,7 +13,7 @@ use std::collections::HashMap;
 pub const CARD_W: f32 = 96.0;
 pub const CARD_H: f32 = 136.0;
 
-const LINES: [&str; 4] = ["TAX · REPAIR", "BATTLE · MOVE", "BUILD · REPAIR", "MOVE"];
+const LINES: [&str; 4] = ["TAX · REPAIR · INFLUENCE", "BATTLE · MOVE · SECURE", "BUILD · REPAIR", "MOVE · INFLUENCE"];
 
 fn suit_col(s: usize) -> Color32 {
     crate::ui::suit_color(s)
@@ -176,9 +176,12 @@ pub struct Fly {
     pub flip_from: f32,
     pub flip_to: f32,
     pub land: Land,
+    /// Seat that played the card (its 3D copy waits until this lands).
+    pub owner: usize,
 }
 
-/// Cards currently lying in the map-edge slots.
+/// Cards that landed in the map-edge slots this round (drawn in 3D from the
+/// rules state; kept here so a round's end can sweep them to the discard).
 #[derive(Clone, Debug, Default)]
 pub struct Table {
     pub lead: Option<Card>,
@@ -200,24 +203,15 @@ fn lerp(a: Pos2, b: Pos2, t: f32) -> Pos2 {
     pos2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
 
-fn slot_rect(c: [f32; 2], w: f32, dx: f32) -> Rect {
-    Rect::from_center_size(pos2(c[0] + dx, c[1]), vec2(w, w * CARD_H / CARD_W))
-}
-
 pub fn draw_table(ctx: &egui::Context, t: &Table, flies: &[Fly], s: &Slots) {
     if s.card_w <= 1.0 {
         return;
     }
-    // Between the table and the HUD: a played card can never cover the
-    // standings, the Court row or the hand's controls.
+    // Landed cards are drawn in 3D on the board's left edge; only flights
+    // (hand to slot, slot to discard) are painted here, between the table
+    // and the HUD.
+    let _ = t;
     let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("cardfx")));
-    if let Some(c) = t.lead {
-        paint_card(&p, slot_rect(s.lead, s.card_w, 0.0), Some(c), 0.0, 1.0);
-    }
-    for (i, c) in t.follows.iter().enumerate() {
-        let dx = (i as f32 - (t.follows.len() as f32 - 1.0) / 2.0) * s.card_w * 0.82;
-        paint_card(&p, slot_rect(s.follow, s.card_w, dx), *c, if c.is_some() { 0.0 } else { 1.0 }, 1.0);
-    }
     for f in flies {
         let k = ease_in_out(f.t / f.dur);
         let arc = (std::f32::consts::PI * k).sin() * 46.0;

@@ -29,11 +29,14 @@ const OVERVIEW_DIST: f32 = 30.0;
 /// Half the board's width and its foreshortened depth. The overview distance
 /// fits both, so a narrow window sees the whole table instead of a crop.
 const BOARD_HALF_W: f32 = 16.0;
-const BOARD_HALF_D: f32 = 10.9;
+const BOARD_HALF_D: f32 = 12.6;
+/// The overview looks a little below the hub: the board (Court row on top,
+/// power track along the bottom) is taller than it is centred on the hub.
+const OVERVIEW_TARGET: Vec3 = Vec3::new(0.0, 0.0, 0.9);
 
 impl BoardCamera {
     pub fn new() -> Self {
-        let mut cam = OrbitCamera::new(Vec3::ZERO, OVERVIEW_DIST);
+        let mut cam = OrbitCamera::new(OVERVIEW_TARGET, OVERVIEW_DIST);
         cam.pitch = OVERVIEW_PITCH;
         cam.yaw = 0.0;
         cam.min_distance = MIN_DIST;
@@ -42,7 +45,7 @@ impl BoardCamera {
         cam.near = 0.5;
         cam.far = 420.0;
         Self {
-            goal_target: Vec3::ZERO,
+            goal_target: OVERVIEW_TARGET,
             goal_yaw: 0.0,
             base_yaw: 0.0,
             t: 0.0,
@@ -55,7 +58,7 @@ impl BoardCamera {
     }
 
     pub fn overview(&mut self) {
-        self.goal_target = Vec3::ZERO;
+        self.goal_target = OVERVIEW_TARGET;
         self.goal_pitch = OVERVIEW_PITCH;
         self.auto_fit = true;
         self.goal_dist = self.overview_dist;
@@ -197,7 +200,7 @@ mod tests {
         c.update(10.0);
         let (o, d) = c.ray((400.0, 300.0), (800.0, 600.0), 800.0 / 600.0);
         let hit = ray_plane(o, d, 0.0).unwrap();
-        assert!(hit.length() < 0.05, "{hit:?}");
+        assert!((hit - OVERVIEW_TARGET).length() < 0.05, "{hit:?}");
     }
 
     #[test]
@@ -206,7 +209,7 @@ mod tests {
         c.fit(1280.0 / 720.0);
         let wide = c.overview_dist;
         c.fit(720.0 / 936.0);
-        assert!(c.overview_dist > wide * 1.8, "{wide} -> {}", c.overview_dist);
+        assert!(c.overview_dist > wide * 1.6, "{wide} -> {}", c.overview_dist);
         c.update(10.0);
         assert!((c.cam.distance - c.overview_dist).abs() < 0.05);
     }
@@ -217,6 +220,6 @@ mod tests {
         c.quarter_turn(1.0);
         c.pan(0.0, 1.0); // "forward" after a quarter turn is along world -X
         c.update(10.0);
-        assert!(c.cam.target.x < -0.9 && c.cam.target.z.abs() < 0.1, "{:?}", c.cam.target);
+        assert!(c.cam.target.x < -0.9 && (c.cam.target.z - OVERVIEW_TARGET.z).abs() < 0.1, "{:?}", c.cam.target);
     }
 }

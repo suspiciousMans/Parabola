@@ -7,15 +7,20 @@
 // of Ints, so both are trivially serialisable (saves, network) and identical
 // on every peer. Randomness comes from an LCG stored in the state.
 //
-// Court cards: five face-up cards. Securing one costs 1 Relic, scores its
-// influence (1 power) and keeps it in the securing player's court set, where
-// it grants a lasting effect (see court_* below).
+// Court: a deck of ten original court cards; a face-up row of 3 (2 players) or
+// 4 (3-4 players) sits along the map edge. Influence places one of your ten
+// agents on a card; Secure takes a card where you have more agents than each
+// rival: your agents come home, rival agents become your captives, the card
+// joins your court (a resource icon for ambitions plus a lasting effect) and
+// the slot is refilled from the deck.
 //
 // Leaders: each player is dealt one of six leaders at setup. A leader adds one
 // starting resource and one rule bend. Lore: after each chapter is scored the
 // player(s) furthest behind gain a Lore token (max 3); once per turn in the
 // action step a Lore buys one more action of the current suit.
-// The +2/+5 city bonuses of ambitions are still deferred.
+// Card play follows the published round structure: lead (optionally declaring
+// the ambition on the card, which sets its number to 0), then each other player
+// with cards must Surpass, Copy or Pivot; seizing; passing the initiative.
 
 import "data.ox"
 
@@ -39,19 +44,32 @@ fn h_x_move() -> Int { return 15 }
 fn h_x_battle() -> Int { return 16 }
 fn h_x_lead() -> Int { return 17 }
 fn h_acted() -> Int { return 18 }
+fn h_taxed() -> Int { return 13 }     // bitmask (sys * 2 + slot) of cities taxed this turn
+fn h_ported() -> Int { return 19 }    // bitmask (sys * 2 + k) of starport ship builds this turn
+fn h_lead_num() -> Int { return 28 }  // lead card number, 0 once an ambition is declared
 fn h_lore_used() -> Int { return 21 }  // a Lore was spent this turn
 fn h_spill() -> Int { return 29 }      // battle scratch: hits with no ship left to take them
 fn h_out() -> Int { return 20 }       // bitmask of clusters out of play
-fn h_amb() -> Int { return 22 }       // 5 entries: declaration rank 1..3, 0 = none
-fn h_amb_count() -> Int { return 27 }
-fn h_court() { return 35 }     // 5 face-up court card ids, -1 = secured/empty
+fn h_amb() -> Int { return 22 }       // 5 entries: markers on each ambition this chapter
+fn h_amb_count() -> Int { return 27 }  // markers placed this chapter (max 3)
+fn h_court() { return 35 }     // court row card ids (3 or 4 used), -1 = empty
 fn h_ev() -> Int { return 30 }        // last event: kind, a..e
 fn p_base() -> Int { return 40 }
 fn p_stride() -> Int { return 20 }
 fn ships_base() -> Int { return 120 }
 fn slots_base() -> Int { return 312 }
 fn supply_base() -> Int { return 456 }
-fn state_len() -> Int { return 461 }
+fn h_passes() -> Int { return 461 }   // consecutive initiative passes
+fn h_deck() -> Int { return 462 }     // bitmask of court cards still in the deck
+fn h_flips() -> Int { return 463 }    // ambition markers flipped to their high side (0..3)
+fn h_mk_taken() -> Int { return 464 } // bitmask of markers placed this chapter
+fn h_x_secure() -> Int { return 465 } // Relic prelude: extra Secure actions
+fn h_amb_first() -> Int { return 466 }  // 5 entries: summed first-place power
+fn h_amb_second() -> Int { return 471 } // 5 entries: summed second-place power
+fn agents_base() -> Int { return 476 }  // court slot i, player p: 476 + i * 4 + p
+fn cap_base() -> Int { return 492 }     // captives held by h of owner o: 492 + h * 4 + o
+fn state_len() -> Int { return 508 }
+fn n_agents() { return 10 }
 
 fn pb(p) { return p_base() + p_stride() * p }
 fn power(s, p) { return s[pb(p)] }
@@ -65,10 +83,35 @@ fn hand(s, p) { return s[pb(p) + 11] }
 fn secured(s, p) { return s[pb(p) + 15] }   // bitmask of court card ids
 fn leader(s, p) { return s[pb(p) + 16] }    // 0..5, see leader_res
 fn lore(s, p) { return s[pb(p) + 17] }
+fn play_mode(s, p) { return s[pb(p) + 18] }   // this round: -1 none, 0 lead, 1 surpass, 2 copy, 3 pivot
+fn seize_card(s, p) { return s[pb(p) + 19] }  // card spent to seize this round, -1 none
 fn lore_cap() { return 3 }
 
-// Court card ids: 0 Envoy, 1 Seal, 2 Writ, 3 Pact, 4 Accord.
-fn has_court(s, p, c) { return has_card(secured(s, p), c) }
+// Court card ids 0..9; the effect is id % 5: 0 Envoy, 1 Seal, 2 Writ, 3 Pact,
+// 4 Accord (cards 5..9 repeat those effects under other names and icons).
+fn n_court() { return 10 }
+fn court_icon(c) { return [0, 2, 3, 4, 1, 1, 3, 0, 2, 4][c] }   // resource suit
+fn has_court(s, p, e) {
+    let m = secured(s, p)
+    return has_card(m, e) || has_card(m, e + 5)
+}
+fn court_icons(s, p, ty) {
+    let n = 0
+    for c in range(0, n_court()) {
+        if has_card(secured(s, p), c) && court_icon(c) == ty { n = n + 1 }
+    }
+    return n
+}
+fn row_size(s) { if nplayers(s) == 2 { return 3 } return 4 }
+fn agents_on(s, i, p) { return s[agents_base() + i * 4 + p] }
+fn cap_of(s, h, o) { return s[cap_base() + h * 4 + o] }
+// Agents in p's supply: ten, less those in the Court and those held captive.
+fn agents_left(s, p) {
+    let n = n_agents()
+    for i in range(0, 4) { n = n - agents_on(s, i, p) }
+    for h in range(0, nplayers(s)) { n = n - cap_of(s, h, p) }
+    return n
+}
 fn court_envoy() { return 0 }    // Tax takes one more of that resource
 fn court_seal() { return 1 }     // the first building hit in each battle against you is ignored
 fn court_writ() { return 2 }     // Repair fixes every damaged piece of yours in the system
@@ -78,11 +121,10 @@ fn court_accord() { return 4 }   // +1 power at each chapter end
 // Leaders: 0 Broker, 1 Admiral, 2 Architect, 3 Seer, 4 Pilgrim, 5 Corsair.
 fn n_leaders() { return 6 }
 fn leader_res(l) { return [1, 2, 0, 4, 3, 1][l] }    // starting resource
+// Pilgrim (4): Influence places two agents.
 fn is_leader(s, p, l) { return leader(s, p) == l }
 fn outraged(s, p, t) { return (s[pb(p) + 13] / pow2(t)) % 2 == 1 }
 fn court(s, i) { return s[h_court() + i] }
-fn court_value(c) { return 1 }    // assumption: every court card is +1 influence
-fn court_cost() { return 1 }     // one Relic (resource 3)
 fn supply(s, t) { return s[supply_base() + t] }
 fn phase(s) { return s[h_phase()] }
 fn cur(s) { return s[h_cur()] }
@@ -242,7 +284,8 @@ fn new_game(n, seed, setup_idx) {
     s[h_out()] = mask
     s[h_seized()] = -1
     s[h_lead_suit()] = -1
-    for i in range(0, 5) { s[h_court() + i] = i }
+    for i in range(0, 5) { s[h_court() + i] = -1 }
+    s[h_deck()] = pow2(n_court()) - 1
     for t in range(0, 5) { s[supply_base() + t] = 5 }
     for sys in range(0, n_sys()) {
         for sl in range(0, 2) { s[slot_i(sys, sl)] = -1 }
@@ -278,7 +321,24 @@ fn new_game(n, seed, setup_idx) {
     }
     s = deal_leaders(s)
     s = shuffle_init(s)
+    for i in range(0, row_size(s)) { s = refill_court(s, i) }
     return deal_chapter(s)
+}
+
+// Draw a random card from the court deck into row slot i (empty if the deck is out).
+fn refill_court(s, i) {
+    let t = s
+    t[h_court() + i] = -1
+    let left = []
+    for c in range(0, n_court()) {
+        if has_card(t[h_deck()], c) { left = push(left, c) }
+    }
+    if len(left) == 0 { return t }
+    t = draw(t)
+    let c = left[rng_val(t[h_rng()]) % len(left)]
+    t[h_deck()] = t[h_deck()] - pow2(c)
+    t[h_court() + i] = c
+    return t
 }
 
 // Shuffle the six leaders and give one to each player, with its resource.
@@ -354,14 +414,20 @@ fn start_round(s) {
     t[h_lead_suit()] = -1
     t[h_best_num()] = 0
     t[h_best_player()] = -1
+    t[h_lead_num()] = 0
     t[h_seized()] = -1
     t[h_turns()] = 0
+    t[h_x_secure()] = 0
     t[h_acts()] = 0
     t[h_x_build()] = 0
     t[h_x_move()] = 0
     t[h_x_battle()] = 0
     t[h_x_lead()] = 0
     t[h_acted()] = 0
+    for p in range(0, nplayers(t)) {
+        t[pb(p) + 18] = -1
+        t[pb(p) + 19] = -1
+    }
     return t
 }
 
@@ -378,46 +444,70 @@ fn cards_in_hand(s, p) {
 fn amb_declared(s, a) { return s[h_amb() + a] > 0 }
 
 // Ambition types a lead card of this number may declare (-1 alone = none).
+// An ambition may be declared again in a later round: another marker joins it.
 fn ambition_options(s, num) {
     let out = [-1]
     if s[h_amb_count()] >= 3 { return out }
-    if num >= 2 && num <= 6 {
-        if !amb_declared(s, num - 2) { out = push(out, num - 2) }
-    }
+    if num >= 2 && num <= 6 { out = push(out, num - 2) }
     if num == 7 {
-        for a in range(0, 5) {
-            if !amb_declared(s, a) { out = push(out, a) }
-        }
+        for a in range(0, 5) { out = push(out, a) }
     }
     return out
 }
 
-// Which action kinds the suit's actions cover. Court securing is kind 15:
-// available in the action step, paid with Relics, and not bound to a suit pip.
+// Ambition markers: [first, second] by marker index, low side then high side.
+// Each chapter end flips the lowest unflipped marker.
+fn marker_pair(s, i) {
+    if i < s[h_flips()] { return [[4, 2], [6, 3], [9, 4]][i] }
+    return [[2, 0], [3, 2], [5, 3]][i]
+}
+
+// The free marker worth the most first-place power, or -1.
+fn best_marker(s) {
+    let best = -1
+    let bv = -1
+    for i in range(0, 3) {
+        if !has_card(s[h_mk_taken()], i) && marker_pair(s, i)[0] > bv {
+            bv = marker_pair(s, i)[0]
+            best = i
+        }
+    }
+    return best
+}
+
+// Which action kinds each suit's pips cover (kinds: 8 tax, 9-11 build,
+// 12 move, 13 repair, 14 battle, 15 secure, 17 influence).
 fn suit_allows(suit, kind) {
-    if suit == 0 { return kind == 8 || kind == 13 }           // Administration: tax, repair
-    if suit == 1 { return kind == 14 || kind == 12 }          // Aggression: battle, move
+    if suit == 0 { return kind == 8 || kind == 13 || kind == 17 }   // Administration: tax, repair, influence
+    if suit == 1 { return kind == 14 || kind == 12 || kind == 15 }  // Aggression: battle, move, secure
     if suit == 2 { return kind == 9 || kind == 10 || kind == 11 || kind == 13 }  // Construction: build, repair
-    return kind == 12                                          // Mobilization: move
+    return kind == 12 || kind == 17                                 // Mobilization: move, influence
 }
 
 fn kind_group(kind) {
     if kind == 9 || kind == 10 || kind == 11 || kind == 13 { return 0 }   // build / repair
     if kind == 12 { return 1 }
     if kind == 14 { return 2 }
+    if kind == 15 { return 4 }
     return 3
 }
 
 // Is this action kind available right now, and through which source?
-// 1 = suit pip, 2 = prelude extra, 0 = not available.
+// 1 = suit pip, 2 = prelude extra, 0 = not available. A Weapon spent in the
+// prelude lets this turn's pips take Battle actions.
 fn source_for(s, kind) {
     if acts(s) > 0 && suit_allows(s[h_act_suit()], kind) { return 1 }
+    if kind == 14 && acts(s) > 0 && s[h_x_battle()] > 0 { return 1 }
     let g = kind_group(kind)
     if g == 0 && s[h_x_build()] > 0 { return 2 }
     if g == 1 && s[h_x_move()] > 0 { return 2 }
-    if g == 2 && s[h_x_battle()] > 0 { return 2 }
+    if g == 4 && s[h_x_secure()] > 0 { return 2 }
     if s[h_x_lead()] > 0 && suit_allows(s[h_lead_suit()], kind) { return 2 }
     return 0
+}
+
+fn extras_left(s) {
+    return s[h_x_build()] + s[h_x_move()] + s[h_x_lead()] + s[h_x_secure()]
 }
 
 fn can_spend(s, p, t) {
@@ -434,31 +524,29 @@ fn legal_actions(s) {
         }
         out = push(out, [4, 0, 0, 0])
     } else if ph == 1 {
+        // Following is not optional: Surpass (lead suit, higher than the lead
+        // card's number), Copy (any card face down) or Pivot (another suit).
         let ls = s[h_lead_suit()]
         let cards = cards_in_hand(s, p)
         for c in cards {
             if card_suit(c) == ls {
-                if card_num(c) > s[h_best_num()] { out = push(out, [1, c, 0, 0]) }
+                if card_num(c) > s[h_lead_num()] { out = push(out, [1, c, 0, 0]) }
             } else {
                 out = push(out, [3, c, 0, 0])
             }
             out = push(out, [2, c, 0, 0])
         }
-        if s[h_seized()] == -1 && len(cards) >= 2 {
+        // Seize: an extra card face down first (not by the initiative holder).
+        if s[h_seized()] == -1 && p != s[h_init()] && len(cards) >= 2 {
             for c in cards { out = push(out, [5, c, 0, 0]) }
         }
-        out = push(out, [4, 0, 0, 0])
     } else if ph == 2 {
         if s[h_acted()] == 0 {
-            // Prelude: spend a resource for an extra action (Relics are for the Court).
-            for t in [0, 1, 2, 4] {
+            // Prelude: spend resources before any pip. Material builds or
+            // repairs, Fuel moves, a Weapon lets pips battle, a Relic secures,
+            // Psionic takes an action of the lead card.
+            for t in range(0, 5) {
                 if can_spend(s, p, t) { out = push(out, [6, t, 0, 0]) }
-            }
-        }
-        for i in range(0, 5) {
-            if court(s, i) >= 0 {
-                if court_pay_ok(s, p, 3) { out = push(out, [15, i, 0, 0]) }
-                if court_pay_ok(s, p, 4) { out = push(out, [15, i, 4, 0]) }
             }
         }
         if lore(s, p) > 0 && s[h_lore_used()] == 0 { out = push(out, [16, 0, 0, 0]) }
@@ -473,16 +561,33 @@ fn action_list(s) {
     let out = []
     let n = nplayers(s)
     // Tax
+    // Tax a Loyal city, or a Rival city you control; each city once per turn.
     if source_for(s, 8) > 0 {
         for sys in range(0, n_sys()) {
-            if !is_gate(sys) && supply(s, planet_type(sys)) > 0 {
-                let mine = false
+            if in_play(s, sys) && !is_gate(sys) {
                 for sl in range(0, 2) {
-                    if slot_kind(s, sys, sl) == 1 && slot_owner(s, sys, sl) == p { mine = true }
-                    if slot_kind(s, sys, sl) == 1 && slot_owner(s, sys, sl) != p && controller(s, sys) == p { mine = true }
+                    if slot_kind(s, sys, sl) == 1 && !has_card(s[h_taxed()], sys * 2 + sl) {
+                        let o = slot_owner(s, sys, sl)
+                        let rival_ok = o != p && controller(s, sys) == p
+                        let gains = supply(s, planet_type(sys)) > 0
+                        if (o == p && gains) || (rival_ok && (gains || agents_left(s, o) > 0)) {
+                            out = push(out, [8, sys, sl, 0])
+                        }
+                    }
                 }
-                if mine { out = push(out, [8, sys, 0, 0]) }
             }
+        }
+    }
+    // Influence: one agent on any card in the Court.
+    if source_for(s, 17) > 0 && agents_left(s, p) > 0 {
+        for i in range(0, row_size(s)) {
+            if court(s, i) >= 0 { out = push(out, [17, i, 0, 0]) }
+        }
+    }
+    // Secure: a card where you have more agents than each rival.
+    if source_for(s, 15) > 0 {
+        for i in range(0, row_size(s)) {
+            if court(s, i) >= 0 && can_secure(s, i, p) { out = push(out, [15, i, 0, 0]) }
         }
     }
     // Build
@@ -496,7 +601,7 @@ fn action_list(s) {
                     if ports_left(s, p) > 0 { out = push(out, [10, sys, sl, 0]) }
                 }
             }
-            if count_kind(s, sys, p, 2, 0) > 0 && reserve(s, p) > 0 { out = push(out, [11, sys, 0, 0]) }
+            if ports_ready(s, sys, p) > 0 && reserve(s, p) > 0 { out = push(out, [11, sys, 0, 0]) }
         }
     }
     // Repair: one damaged piece
@@ -536,6 +641,25 @@ fn action_list(s) {
         }
     }
     return out
+}
+
+fn can_secure(s, i, p) {
+    let mine = agents_on(s, i, p)
+    if mine == 0 { return false }
+    for e in range(0, nplayers(s)) {
+        if e != p && agents_on(s, i, e) >= mine { return false }
+    }
+    return true
+}
+
+// Starports of p in sys (any damage state counts as Loyal; damaged ones cannot
+// build) that have not built a ship this turn.
+fn ports_ready(s, sys, p) {
+    let n = count_kind(s, sys, p, 2, 0)
+    for k in range(0, 2) {
+        if has_card(s[h_ported()], sys * 2 + k) { n = n - 1 }
+    }
+    return n
 }
 
 // Adjacent systems, or every system reachable by path from a Loyal starport (catapult).
@@ -613,14 +737,10 @@ fn begin_actions(t, suit, pips) {
     t[h_acts()] = pips
     t[h_acted()] = 0
     t[h_lore_used()] = 0
+    t[h_taxed()] = 0
+    t[h_ported()] = 0
+    t[h_x_secure()] = 0
     return t
-}
-
-// Securing pays one Relic; the Pilgrim may pay one Psionic instead.
-fn court_pay_ok(s, p, r) {
-    if r == 3 { return can_spend(s, p, 3) }
-    if r == 4 { return is_leader(s, p, 4) && can_spend(s, p, 4) }
-    return false
 }
 
 fn apply(s, a) {
@@ -632,12 +752,23 @@ fn apply(s, a) {
         let c = a[1]
         t = remove_card(t, p, c)
         t[h_lead_suit()] = card_suit(c)
-        t[h_best_num()] = card_num(c)
-        t[h_best_player()] = p
+        t[h_lead_num()] = card_num(c)
+        t[h_best_num()] = 0
+        t[h_best_player()] = -1
         t[h_turns()] = 1
+        t[h_passes()] = 0
+        t[pb(p) + 18] = 0
         if a[2] >= 0 {
+            // Declaring: the best free marker goes on the ambition and the
+            // lead card's number becomes 0 (its pips are unchanged).
+            let m = best_marker(t)
+            let v = marker_pair(t, m)
+            t[h_mk_taken()] = t[h_mk_taken()] + pow2(m)
             t[h_amb_count()] = s[h_amb_count()] + 1
-            t[h_amb() + a[2]] = t[h_amb_count()]
+            t[h_amb() + a[2]] = s[h_amb() + a[2]] + 1
+            t[h_amb_first() + a[2]] = s[h_amb_first() + a[2]] + v[0]
+            t[h_amb_second() + a[2]] = s[h_amb_second() + a[2]] + v[1]
+            t[h_lead_num()] = 0
         }
         t = set_event(t, 0, p, c, a[2], 0)
         t = begin_actions(t, card_suit(c), card_pips(card_suit(c), card_num(c)))
@@ -647,9 +778,12 @@ fn apply(s, a) {
         let c = a[1]
         t = remove_card(t, p, c)
         t[h_turns()] = s[h_turns()] + 1
+        t[pb(p) + 18] = kind
         if kind == 1 {
-            t[h_best_num()] = card_num(c)
-            t[h_best_player()] = p
+            if card_num(c) > s[h_best_num()] {
+                t[h_best_num()] = card_num(c)
+                t[h_best_player()] = p
+            }
             if card_num(c) == 7 && nplayers(s) == 4 && s[h_seized()] == -1 { t[h_seized()] = p }
             t = begin_actions(t, s[h_lead_suit()], card_pips(card_suit(c), card_num(c)))
         } else if kind == 2 {
@@ -664,13 +798,23 @@ fn apply(s, a) {
         // seize the initiative: an extra card face down, then play as usual
         t = remove_card(t, p, a[1])
         t[h_seized()] = p
+        t[pb(p) + 19] = a[1]
         return set_event(t, 5, p, 0, 0, 0)
     }
     if kind == 4 {
+        // Pass the initiative: it goes to the next player with cards and the
+        // round ends. If everyone with cards passes in a row, the chapter ends.
         t = set_event(t, 4, p, 0, 0, 0)
-        if phase(s) == 0 { return end_chapter(t) }
-        t[h_turns()] = s[h_turns()] + 1
-        return advance_turn(t)
+        t[h_passes()] = s[h_passes()] + 1
+        let holders = 0
+        for q in range(0, nplayers(t)) {
+            if hand(t, q) != 0 { holders = holders + 1 }
+        }
+        if t[h_passes()] >= holders { return end_chapter(t) }
+        let nx = next_with_cards(t, p)
+        if nx < 0 { return end_chapter(t) }
+        t[h_init()] = nx
+        return start_round(t)
     }
     if kind == 6 {
         let r = a[1]
@@ -678,7 +822,8 @@ fn apply(s, a) {
         t[supply_base() + r] = supply(s, r) + 1
         if r == 0 { t[h_x_build()] = s[h_x_build()] + 1 }
         if r == 1 { t[h_x_move()] = s[h_x_move()] + 1 }
-        if r == 2 { t[h_x_battle()] = s[h_x_battle()] + 1 }
+        if r == 2 { t[h_x_battle()] = 1 }
+        if r == 3 { t[h_x_secure()] = s[h_x_secure()] + 1 }
         if r == 4 { t[h_x_lead()] = s[h_x_lead()] + 1 }
         return set_event(t, 6, p, r, 0, 0)
     }
@@ -688,24 +833,11 @@ fn apply(s, a) {
         t[h_x_move()] = 0
         t[h_x_battle()] = 0
         t[h_x_lead()] = 0
+        t[h_x_secure()] = 0
         t = set_event(t, 7, p, 0, 0, 0)
         return advance_turn(t)
     }
-    if kind == 15 {
-        // Court: one Relic secures one face-up card. The card leaves the row,
-        // scores its influence immediately and stays in the player's court set.
-        let i = a[1]
-        let c = s[h_court() + i]
-        let r = 3
-        if a[2] == 4 { r = 4 }
-        if c < 0 || !court_pay_ok(s, p, r) { return t }
-        t[h_court() + i] = -1
-        t[pb(p) + 1 + r] = res(s, p, r) - court_cost()
-        t[supply_base() + r] = supply(s, r) + court_cost()
-        t[pb(p) + 15] = secured(s, p) + pow2(c)
-        t[pb(p)] = power(s, p) + court_value(c)
-        return set_event(t, 15, p, i, c, 0)
-    }
+
     if kind == 16 {
         // Lore: one more action of the current suit, once per turn.
         if lore(s, p) <= 0 || s[h_lore_used()] == 1 { return t }
@@ -722,11 +854,13 @@ fn apply(s, a) {
         let g = kind_group(kind)
         if g == 0 && s[h_x_build()] > 0 { t[h_x_build()] = s[h_x_build()] - 1 }
         else if g == 1 && s[h_x_move()] > 0 { t[h_x_move()] = s[h_x_move()] - 1 }
-        else if g == 2 && s[h_x_battle()] > 0 { t[h_x_battle()] = s[h_x_battle()] - 1 }
+        else if g == 4 && s[h_x_secure()] > 0 { t[h_x_secure()] = s[h_x_secure()] - 1 }
         else { t[h_x_lead()] = s[h_x_lead()] - 1 }
     }
-    t[h_acted()] = 1
-    if kind == 8 { t = do_tax(t, p, a[1]) }
+    if src == 1 { t[h_acted()] = 1 }
+    if kind == 8 { t = do_tax(t, p, a[1], a[2]) }
+    else if kind == 15 { t = do_secure(t, p, a[1]) }
+    else if kind == 17 { t = do_influence(t, p, a[1]) }
     else if kind == 9 || kind == 10 { t = do_build_building(t, p, a[1], a[2], kind) }
     else if kind == 11 { t = do_build_ships(t, p, a[1]) }
     else if kind == 12 { t = do_move(t, p, a[1], a[2], a[3]) }
@@ -735,13 +869,45 @@ fn apply(s, a) {
     return settle(t)
 }
 
-fn do_tax(t, p, sys) {
+// Tax a city: gain its planet's resource; taxing a Rival city also captures
+// one of that Rival's agents from their supply.
+fn do_tax(t, p, sys, sl) {
     let ty = planet_type(sys)
-    let n = 1
+    let n = min_i(1, supply(t, ty))
     if has_court(t, p, court_envoy()) && supply(t, ty) >= 2 { n = 2 }
     t[pb(p) + 1 + ty] = res(t, p, ty) + n
     t[supply_base() + ty] = supply(t, ty) - n
+    t[h_taxed()] = t[h_taxed()] + pow2(sys * 2 + sl)
+    let o = slot_owner(t, sys, sl)
+    if o >= 0 && o != p && agents_left(t, o) > 0 {
+        t[cap_base() + p * 4 + o] = cap_of(t, p, o) + 1
+        t[pb(p) + 10] = captives(t, p) + 1
+    }
     return set_event(t, 8, p, sys, ty, n)
+}
+
+fn do_influence(t, p, i) {
+    let n = 1
+    if is_leader(t, p, 4) && agents_left(t, p) >= 2 { n = 2 }    // Pilgrim
+    t[agents_base() + i * 4 + p] = agents_on(t, i, p) + n
+    return set_event(t, 17, p, i, court(t, i), n)
+}
+
+fn do_secure(t, p, i) {
+    let c = court(t, i)
+    let taken = 0
+    for e in range(0, nplayers(t)) {
+        let k = agents_on(t, i, e)
+        if e != p && k > 0 {
+            t[cap_base() + p * 4 + e] = cap_of(t, p, e) + k
+            t[pb(p) + 10] = captives(t, p) + k
+            taken = taken + k
+        }
+        t[agents_base() + i * 4 + e] = 0
+    }
+    t[pb(p) + 15] = secured(t, p) + pow2(c)
+    t = refill_court(t, i)
+    return set_event(t, 15, p, i, c, taken)
 }
 
 fn build_dmg(t, sys, p) {
@@ -760,9 +926,13 @@ fn do_build_building(t, p, sys, sl, kind) {
     return set_event(t, 9, p, sys, kind - 8, d)
 }
 
+// One ship at a Loyal starport; each starport builds once per turn.
 fn do_build_ships(t, p, sys) {
     let d = build_dmg(t, sys, p)
-    let want = count_kind(t, sys, p, 2, 0)
+    let k = 0
+    if has_card(t[h_ported()], sys * 2) { k = 1 }
+    t[h_ported()] = t[h_ported()] + pow2(sys * 2 + k)
+    let want = 1
     if is_leader(t, p, 0) { want = want + 1 }    // Broker: one more ship
     let n = min_i(want, reserve(t, p))
     t[ship_i(sys, p, d)] = t[ship_i(sys, p, d)] + n
@@ -855,13 +1025,8 @@ fn hit_buildings(t, sys, p, n, taker) {
                     t[slot_i(sys, sl)] = -1
                     t[slot_i(sys, sl) + 1] = 0
                     t[slot_i(sys, sl) + 2] = 0
-                    // Destroyed pieces are trophies. Stage 1 has no agent pieces, so a
-                    // destroyed city also yields one captive (its captured agent) for the
-                    // Tyrant ambition; starports are infrastructure and yield no captive.
-                    if taker >= 0 {
-                        t[pb(taker) + 9] = trophies(t, taker) + 1
-                        if was_city { t[pb(taker) + 10] = captives(t, taker) + 1 }
-                    }
+                    // Destroyed pieces are trophies (captives come from taxing and securing).
+                    if taker >= 0 { t[pb(taker) + 9] = trophies(t, taker) + 1 }
                     if was_city { t = outrage(t, p, planet_type(sys)) }
                     done = true
                 }
@@ -947,10 +1112,10 @@ fn settle(s) {
     if phase(s) != 2 { return s }
     let any = len(action_list(s)) > 0
     if !any && s[h_acted()] == 1 { return advance_turn(clear_extras(s)) }
-    if !any && acts(s) == 0 && s[h_x_build()] + s[h_x_move()] + s[h_x_battle()] + s[h_x_lead()] == 0 {
+    if !any && acts(s) == 0 && extras_left(s) == 0 {
         return advance_turn(s)
     }
-    if acts(s) == 0 && s[h_x_build()] + s[h_x_move()] + s[h_x_battle()] + s[h_x_lead()] == 0 && s[h_acted()] == 1 {
+    if acts(s) == 0 && extras_left(s) == 0 && s[h_acted()] == 1 {
         return advance_turn(s)
     }
     return s
@@ -963,14 +1128,30 @@ fn clear_extras(s) {
     t[h_x_move()] = 0
     t[h_x_battle()] = 0
     t[h_x_lead()] = 0
+    t[h_x_secure()] = 0
     return t
 }
 
-// Hand the turn to the next player, or close the round.
+// Next player clockwise from p (not p) who holds cards, or -1.
+fn next_with_cards(s, p) {
+    let n = nplayers(s)
+    for k in range(1, n) {
+        let q = (p + k) % n
+        if hand(s, q) != 0 { return q }
+    }
+    return -1
+}
+
+// Hand the turn to the next player clockwise who has cards; once play is
+// back round to the lead player, close the round.
 fn advance_turn(s) {
     let t = clear_extras(s)
-    if t[h_turns()] >= nplayers(t) { return end_round(t) }
-    t[h_cur()] = (cur(t) + 1) % nplayers(t)
+    let n = nplayers(t)
+    let lead = t[h_init()]
+    let q = (cur(t) + 1) % n
+    while q != lead && hand(t, q) == 0 { q = (q + 1) % n }
+    if q == lead { return end_round(t) }
+    t[h_cur()] = q
     t[h_phase()] = 1
     t[h_acted()] = 0
     return t
@@ -994,31 +1175,39 @@ fn end_round(s) {
     t[h_init()] = next
     t = set_event(t, 20, next, 0, 0, 0)
     if all_hands_empty(t) { return end_chapter(t) }
-    // a player with no cards left cannot lead
-    let guard = 0
-    while hand(t, t[h_init()]) == 0 && guard < 6 {
-        t[h_init()] = (t[h_init()] + 1) % nplayers(t)
-        guard = guard + 1
-    }
+    // an initiative holder with no cards passes it to the next player with cards
+    if hand(t, t[h_init()]) == 0 { t[h_init()] = next_with_cards(t, t[h_init()]) }
     return start_round(t)
 }
 
 // ---- ambitions and chapters --------------------------------------------
 // 0 Tycoon (Fuel + Material), 1 Tyrant (captives), 2 Warlord (trophies),
 // 3 Keeper (Relics), 4 Empath (Psionic).
+// Resources and court card icons both count.
 fn amb_tally(s, p, a) {
-    if a == 0 { return res(s, p, 0) + res(s, p, 1) }
+    if a == 0 { return res(s, p, 0) + res(s, p, 1) + court_icons(s, p, 0) + court_icons(s, p, 1) }
     if a == 1 { return captives(s, p) }
     if a == 2 { return trophies(s, p) }
-    if a == 3 { return res(s, p, 3) }
-    return res(s, p, 4)
+    if a == 3 { return res(s, p, 3) + court_icons(s, p, 3) }
+    return res(s, p, 4) + court_icons(s, p, 4)
 }
 
+// Bonus city power to a sole first place: +2 with 4 cities built, +5 with all 5.
+fn city_bonus(s, p) {
+    let built = 5 - cities_left(s, p)
+    if built >= 5 { return 5 }
+    if built >= 4 { return 2 }
+    return 0
+}
+
+// Score one ambition with every marker on it. Ties for first take the second
+// value and nobody else places; a tie for second scores nothing; you need at
+// least one of the thing counted to place.
 fn score_ambition(s, a) {
     let t = s
-    let rank = s[h_amb() + a]
-    if rank == 0 { return t }
-    let vals = marker_values(rank - 1)
+    if s[h_amb() + a] == 0 { return t }
+    let first_v = s[h_amb_first() + a]
+    let second_v = s[h_amb_second() + a]
     let n = nplayers(t)
     let top = 0
     for p in range(0, n) { top = max_i(top, amb_tally(t, p, a)) }
@@ -1032,13 +1221,20 @@ fn score_ambition(s, a) {
         let m = amb_tally(t, p, a)
         if m < top { second = max_i(second, m) }
     }
+    let at_second = 0
+    for p in range(0, n) {
+        if second > 0 && amb_tally(t, p, a) == second { at_second = at_second + 1 }
+    }
     for p in range(0, n) {
         let m = amb_tally(t, p, a)
         if m == top {
-            // ties for first share the second-place value
-            t[pb(p)] = power(t, p) + (if at_top == 1 { vals[0] } else { vals[1] })
-        } else if at_top == 1 && second > 0 && m == second {
-            t[pb(p)] = power(t, p) + vals[1]
+            if at_top == 1 {
+                t[pb(p)] = power(t, p) + first_v + city_bonus(t, p)
+            } else {
+                t[pb(p)] = power(t, p) + second_v
+            }
+        } else if at_top == 1 && at_second == 1 && m == second {
+            t[pb(p)] = power(t, p) + second_v
         }
     }
     return t
@@ -1053,8 +1249,23 @@ fn end_chapter(s) {
     }
     t = grant_lore(t)
     t = set_event(t, 21, chapter(t), 0, 0, 0)
-    for a in range(0, 5) { t[h_amb() + a] = 0 }
+    // Clean up: scored Warlord returns trophies, scored Tyrant returns captives.
+    if s[h_amb() + 2] > 0 {
+        for p in range(0, nplayers(t)) { t[pb(p) + 9] = 0 }
+    }
+    if s[h_amb() + 1] > 0 {
+        for p in range(0, nplayers(t)) { t[pb(p) + 10] = 0 }
+        for i in range(0, 16) { t[cap_base() + i] = 0 }
+    }
+    for a in range(0, 5) {
+        t[h_amb() + a] = 0
+        t[h_amb_first() + a] = 0
+        t[h_amb_second() + a] = 0
+    }
     t[h_amb_count()] = 0
+    t[h_mk_taken()] = 0
+    t[h_passes()] = 0
+    t[h_flips()] = min_i(3, s[h_flips()] + 1)
     for p in range(0, nplayers(t)) { t[pb(p) + 13] = 0 }
     let goal = power_goal(nplayers(t))
     let hit = false
@@ -1087,13 +1298,14 @@ fn grant_lore(s) {
 
 fn is_over(s) { return phase(s) == 4 }
 
-// Highest power; ties by total resources, then total ships on the map.
+// Highest power; a tie goes to the tied player earliest in turn order from
+// the initiative holder.
 fn winner(s) {
-    let best = 0
-    for p in range(1, nplayers(s)) {
-        let a = [power(s, p), total_resources(s, p), trophies(s, p)]
-        let b = [power(s, best), total_resources(s, best), trophies(s, best)]
-        if a[0] > b[0] || (a[0] == b[0] && (a[1] > b[1] || (a[1] == b[1] && a[2] > b[2]))) { best = p }
+    let n = nplayers(s)
+    let best = s[h_init()]
+    for k in range(1, n) {
+        let p = (s[h_init()] + k) % n
+        if power(s, p) > power(s, best) { best = p }
     }
     return best
 }
@@ -1111,10 +1323,24 @@ fn score_action(s, a) {
     if k == 1 { return 60 + card_num(a[1]) }
     if k == 2 { return 20 }
     if k == 3 { return 30 }
-    if k == 4 { return 1 }
+    if k == 4 { return 0 }
     if k == 5 { return 5 }
-    if k == 6 { return 12 }
-    if k == 15 { return 55 }
+    if k == 6 {
+        if a[1] == 2 { return 3 }
+        return 12
+    }
+    if k == 15 { return 85 }
+    if k == 17 {
+        // contest a card we do not lead yet; do not pile on one we already lead
+        if can_secure(s, a[1], p) { return 6 }
+        let mine = agents_on(s, a[1], p)
+        let best = 0
+        for e in range(0, nplayers(s)) {
+            if e != p { best = max_i(best, agents_on(s, a[1], e)) }
+        }
+        if best - mine > 2 || mine >= 3 { return 8 }
+        return 36 + mine * 2
+    }
     if k == 16 { if acts(s) > 0 { return 50 } return 2 }
     if k == 7 { return 1 }
     if k == 8 { return 40 + (5 - supply(s, planet_type(a[1]))) }

@@ -43,10 +43,14 @@ fn from_dv(d: Dv) -> Vec<i64> {
 pub const RESOURCES: [&str; 5] = ["Material", "Fuel", "Weapons", "Relics", "Psionic"];
 pub const SUITS: [&str; 4] = ["Administration", "Aggression", "Construction", "Mobilization"];
 pub const AMBITIONS: [&str; 5] = ["Tycoon", "Tyrant", "Warlord", "Keeper", "Empath"];
-pub const COURT_CARDS: [&str; 5] = ["Envoy", "Seal", "Writ", "Pact", "Accord"];
-pub const COURT_COST: i64 = 1; // Relics
-pub const COURT_VALUE: i64 = 1; // power per secured court card
-/// What each Court card does for its holder, in `COURT_CARDS` order.
+/// The ten Court cards (our own designs). Card `id`'s effect is `COURT_EFFECTS[id % 5]`.
+pub const COURT_CARDS: [&str; 10] = ["Envoy", "Seal", "Writ", "Pact", "Accord", "Herald", "Warden", "Charter", "Oath", "Concord"];
+pub const COURT_NAMES: [&str; 10] = COURT_CARDS;
+/// The resource icon each Court card adds to ambitions (index into `RESOURCES`).
+pub const COURT_ICONS: [usize; 10] = [0, 2, 3, 4, 1, 1, 3, 0, 2, 4];
+/// Agents each player owns.
+pub const AGENTS: i64 = 10;
+/// What each Court effect does for its holder (card id % 5).
 pub const COURT_EFFECTS: [&str; 5] = [
     "Tax takes one more of that resource",
     "The first building hit in each battle against you is ignored",
@@ -61,7 +65,7 @@ pub const LEADER_EFFECTS: [&str; 6] = [
     "One more ship hit when attacking with any hit",
     "Your builds are never damaged",
     "+1 power at chapter end while holding Psionic",
-    "May secure Court cards with Psionic instead of Relics",
+    "Influence places two agents",
     "Each raid key takes two resources",
 ];
 /// Lore tokens a player can hold.
@@ -72,6 +76,14 @@ const P_STRIDE: usize = 20;
 const SHIPS_BASE: usize = 120;
 const SLOTS_BASE: usize = 312;
 const SUPPLY_BASE: usize = 456;
+const H_PASSES: usize = 461;
+const H_DECK: usize = 462;
+const H_FLIPS: usize = 463;
+const H_X_SECURE: usize = 465;
+const H_AMB_FIRST: usize = 466;
+const H_AMB_SECOND: usize = 471;
+const AGENTS_BASE: usize = 476;
+const CAP_BASE: usize = 492;
 
 /// A move: `[kind, a, b, c]`. See `ox/reach.ox` for the meaning of each kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -96,6 +108,7 @@ pub enum Kind {
     Battle,
     Secure,
     Lore,
+    Influence,
 }
 
 impl Action {
@@ -118,6 +131,7 @@ impl Action {
             14 => Kind::Battle,
             15 => Kind::Secure,
             16 => Kind::Lore,
+            17 => Kind::Influence,
             _ => Kind::Battle,
         }
     }
@@ -158,7 +172,7 @@ impl Card {
     }
 }
 
-/// Court card ids 0..5, matching their slot in the face-up row.
+/// Court card ids 0..10 (see `COURT_CARDS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CourtCard(pub u8);
 
@@ -166,9 +180,11 @@ impl CourtCard {
     pub fn name(self) -> &'static str {
         COURT_CARDS[self.0 as usize]
     }
-    pub fn value(self) -> i64 {
-        let _ = self;
-        COURT_VALUE
+    pub fn effect(self) -> &'static str {
+        COURT_EFFECTS[self.0 as usize % 5]
+    }
+    pub fn icon(self) -> usize {
+        COURT_ICONS[self.0 as usize]
     }
 }
 
@@ -238,8 +254,24 @@ impl State {
     pub fn actions_left(&self) -> i64 {
         self.h(11)
     }
-    pub fn extras(&self) -> [i64; 4] {
-        [self.h(14), self.h(15), self.h(16), self.h(17)]
+    /// Prelude extras: [build/repair, move, weapon flag, lead-suit, secure].
+    pub fn extras(&self) -> [i64; 5] {
+        [self.h(14), self.h(15), self.h(16), self.h(17), self.h(H_X_SECURE)]
+    }
+    /// The lead card's number for Surpassing (0 once an ambition was declared).
+    pub fn lead_number(&self) -> i64 {
+        self.h(28)
+    }
+    /// Who has surpassed highest so far this round, if anyone.
+    pub fn best_surpass(&self) -> Option<usize> {
+        (self.h(8) >= 0).then_some(self.h(8) as usize)
+    }
+    /// Who seized the initiative this round, if anyone.
+    pub fn seized(&self) -> Option<usize> {
+        (self.h(9) >= 0).then_some(self.h(9) as usize)
+    }
+    pub fn passes(&self) -> i64 {
+        self.h(H_PASSES)
     }
     pub fn cluster_out(&self, c: usize) -> bool {
         (self.h(20) >> c) & 1 == 1
@@ -247,9 +279,21 @@ impl State {
     pub fn in_play(&self, sys: usize) -> bool {
         !self.cluster_out(sys / 4)
     }
-    /// Declaration rank (1..3) of each ambition, 0 if not declared.
+    /// Markers on each ambition this chapter (0 = not declared).
     pub fn ambition_ranks(&self) -> [i64; 5] {
         [self.h(22), self.h(23), self.h(24), self.h(25), self.h(26)]
+    }
+    /// [first, second] place power each ambition would pay now (all its markers).
+    pub fn ambition_values(&self, a: usize) -> [i64; 2] {
+        [self.h(H_AMB_FIRST + a), self.h(H_AMB_SECOND + a)]
+    }
+    /// Ambition markers placed this chapter (0..3).
+    pub fn markers_placed(&self) -> i64 {
+        self.h(27)
+    }
+    /// Ambition markers flipped to their high side so far.
+    pub fn marker_flips(&self) -> i64 {
+        self.h(H_FLIPS)
     }
     fn pf(&self, p: usize, off: usize) -> i64 {
         self.0[P_BASE + P_STRIDE * p + off]
@@ -275,10 +319,36 @@ impl State {
     pub fn captives(&self, p: usize) -> i64 {
         self.pf(p, 10)
     }
-    /// First and second place values of an ambition in declaration order (0 = first).
+    /// First and second place values of a marker on its low side (0 = the 5/3 marker).
     pub fn marker_values(rank: usize) -> [i64; 2] {
         let v = from_dv(ox::marker_values(Dv::Int(rank as i64)));
         [v[0], v[1]]
+    }
+    /// Cards still in the Court deck.
+    pub fn court_deck(&self) -> usize {
+        (self.h(H_DECK) as u64).count_ones() as usize
+    }
+    /// Face-up Court slots this player count uses: 3 with two players, else 4.
+    pub fn court_slots(&self) -> usize {
+        if self.players() == 2 { 3 } else { 4 }
+    }
+    /// Agents `p` has on Court slot `i`.
+    pub fn agents_on(&self, slot: usize, p: usize) -> i64 {
+        self.0[AGENTS_BASE + slot * 4 + p]
+    }
+    /// Captives `holder` keeps of `owner`'s agents.
+    pub fn captives_of(&self, holder: usize, owner: usize) -> i64 {
+        self.0[CAP_BASE + holder * 4 + owner]
+    }
+    /// Agents in `p`'s supply.
+    pub fn agents_left(&self, p: usize) -> i64 {
+        let court: i64 = (0..4).map(|i| self.agents_on(i, p)).sum();
+        let held: i64 = (0..self.players()).map(|h| self.captives_of(h, p)).sum();
+        AGENTS - court - held
+    }
+    /// Court icons of resource `t` that `p` holds.
+    pub fn court_icons(&self, p: usize, t: usize) -> i64 {
+        self.secured(p).iter().filter(|c| c.icon() == t).count() as i64
     }
     /// Power that ends the game after a chapter: 33 for 2 players, 30 for 3, 27 for 4.
     pub fn power_goal(players: usize) -> i64 {
@@ -289,30 +359,46 @@ impl State {
     /// keeps these formulas equal to `amb_tally` in the rules.
     pub fn ambition_tally(&self, p: usize, a: usize) -> i64 {
         match a {
-            0 => self.resource(p, 0) + self.resource(p, 1),
+            0 => self.resource(p, 0) + self.resource(p, 1) + self.court_icons(p, 0) + self.court_icons(p, 1),
             1 => self.captives(p),
             2 => self.trophies(p),
-            3 => self.resource(p, 3),
-            _ => self.resource(p, 4),
+            3 => self.resource(p, 3) + self.court_icons(p, 3),
+            _ => self.resource(p, 4) + self.court_icons(p, 4),
         }
     }
     pub fn hand(&self, p: usize) -> Vec<Card> {
         let m = self.pf(p, 11);
         (0..28u8).filter(|c| (m >> c) & 1 == 1).map(Card).collect()
     }
+    /// How `p` played this round: 0 lead, 1 surpass, 2 copy, 3 pivot.
+    pub fn play_mode(&self, p: usize) -> Option<usize> {
+        let m = self.pf(p, 18);
+        (m >= 0).then_some(m as usize)
+    }
+    /// The extra card `p` laid face down to seize the initiative this round.
+    pub fn seize_card(&self, p: usize) -> Option<Card> {
+        let c = self.pf(p, 19);
+        (c >= 0).then_some(Card(c as u8))
+    }
+    /// Cards on the table this round in play order from the lead:
+    /// (player, card, mode, seize card).
+    pub fn table(&self) -> Vec<(usize, Card, usize, Option<Card>)> {
+        let n = self.players();
+        (0..n)
+            .map(|k| (self.initiative() + k) % n)
+            .filter_map(|p| Some((p, self.last_card(p)?, self.play_mode(p)?, self.seize_card(p))))
+            .collect()
+    }
     pub fn last_card(&self, p: usize) -> Option<Card> {
         let c = self.pf(p, 14);
         (c >= 0).then_some(Card(c as u8))
     }
-    /// The five face-up Court cards, `None` once a slot is secured.
-    pub fn court_row(&self) -> [Option<CourtCard>; 5] {
-        std::array::from_fn(|i| {
-            let c = self.h(35 + i);
-            (c >= 0).then_some(CourtCard(c as u8))
-        })
+    /// The face-up Court row (`court_slots()` long), `None` for an empty slot.
+    pub fn court_row(&self) -> Vec<Option<CourtCard>> {
+        (0..self.court_slots()).map(|i| self.court_card(i)).collect()
     }
     pub fn court_card(&self, slot: usize) -> Option<CourtCard> {
-        if slot >= 5 {
+        if slot >= self.court_slots() {
             return None;
         }
         let c = self.h(35 + slot);
@@ -496,36 +582,35 @@ mod tests {
     }
 
     #[test]
-    fn court_row_and_securing_match_the_rules() {
+    fn court_row_influence_and_secure_match_the_rules() {
         let mut s = State::new(3, 11, 0);
-        assert_eq!(s.court_row().len(), 5);
+        assert_eq!(s.court_row().len(), 4);
         assert!(s.court_row().iter().all(Option::is_some));
+        assert_eq!(s.court_deck(), 6);
         assert!(s.secured(0).is_empty());
-        // Put player 0 in the action step with one Relic.
-        s.0[2] = 2; // phase Act
-        s.0[3] = 0; // current player 0
-        s.0[11] = 0; // no action pips required for the Court action
-        s.0[P_BASE + 4] = 1; // Relics
-        let a = Action([15, 0, 0, 0]);
-        assert!(s.legal_actions().contains(&a));
-        let before = s.power(0);
-        let t = s.apply(a);
-        assert_eq!(t.court_card(0), None);
-        assert_eq!(t.resource(0, 3), 0);
-        assert_eq!(t.power(0), before + COURT_VALUE);
-        assert_eq!(t.secured(0), vec![CourtCard(0)]);
-        assert!(t.has_secured(0, CourtCard(0)));
-        assert_eq!(CourtCard(0).name(), COURT_CARDS[0]);
-    }
-
-    #[test]
-    fn court_action_needs_a_relic() {
-        let mut s = State::new(3, 11, 0);
+        assert_eq!(State::new(2, 11, 0).court_row().len(), 3);
+        // Player 0 acts with two Mobilization pips: Influence twice.
         s.0[2] = 2;
         s.0[3] = 0;
-        s.0[11] = 0;
-        s.0[P_BASE + 4] = 0;
-        assert!(!s.legal_actions().contains(&Action([15, 0, 0, 0])));
+        s.0[11] = 2;
+        s.0[12] = 3;
+        s.0[P_BASE + 16] = 0;
+        let card = s.court_card(1).unwrap();
+        s = s.apply(Action([17, 1, 0, 0]));
+        assert_eq!(s.agents_on(1, 0), 1);
+        assert_eq!(s.agents_left(0), AGENTS - 1);
+        assert!(!s.legal_actions().contains(&Action([15, 1, 0, 0])), "Mobilization cannot secure");
+        // Switch to an Aggression pip: secure.
+        s.0[2] = 2;
+        s.0[3] = 0;
+        s.0[11] = 1;
+        s.0[12] = 1;
+        assert!(s.legal_actions().contains(&Action([15, 1, 0, 0])));
+        let t = s.apply(Action([15, 1, 0, 0]));
+        assert!(t.has_secured(0, card));
+        assert_ne!(t.court_card(1), Some(card));
+        assert_eq!(t.agents_left(0), AGENTS);
+        assert_eq!(t.court_deck(), 5);
     }
 
     #[test]
@@ -540,6 +625,7 @@ mod tests {
         t.0[2] = 2;
         t.0[3] = 1;
         t.0[11] = 1;
+        t.0[12] = 0;
         t.0[P_BASE + P_STRIDE + 17] = 1;
         let a = Action([16, 0, 0, 0]);
         assert_eq!(a.kind(), Kind::Lore);
@@ -583,4 +669,19 @@ mod tests {
         );
     }
 
+}
+
+#[cfg(test)]
+mod table_probe {
+    use super::*;
+    #[test]
+    fn table_lists_followers() {
+        let mut s = State::new(4, 4, 0);
+        let mut most = 0;
+        while !s.is_over() {
+            s = s.apply(s.bot_choose());
+            most = most.max(s.table().len());
+        }
+        assert!(most >= 3, "most {most}");
+    }
 }

@@ -1,7 +1,7 @@
 //! egui screens: start menu, in-game HUD (scores, hand, actions, log), game over.
 
 use egui::{self, Color32, FontFamily, FontId, RichText};
-use reach_rules::{Action, Card, Kind, Phase, State, AMBITIONS, COURT_CARDS, COURT_COST, COURT_EFFECTS, COURT_VALUE, LEADERS, LEADER_EFFECTS, RESOURCES, SUITS};
+use reach_rules::{Action, Card, Kind, Phase, State, AMBITIONS, COURT_CARDS, LEADERS, LEADER_EFFECTS, RESOURCES, SUITS};
 
 use crate::courtart;
 use crate::fieldmanual;
@@ -287,7 +287,7 @@ pub struct HudOutput {
     pub wants_pointer: bool,
 }
 
-pub fn action_text(a: Action) -> String {
+pub fn action_text(a: Action, st: &State) -> String {
     let v = a.0;
     match a.kind() {
         Kind::Lead => {
@@ -302,9 +302,16 @@ pub fn action_text(a: Action) -> String {
         Kind::Pivot => "Pivot".into(),
         Kind::Pass => "Pass".into(),
         Kind::Seize => "Seize".into(),
-        Kind::Prelude => format!("Spend {} · extra action", RESOURCES[v[1] as usize]),
+        Kind::Prelude => match v[1] {
+            0 => "Spend Material · build or repair".into(),
+            1 => "Spend Fuel · move".into(),
+            2 => "Spend Weapons · pips may battle".into(),
+            3 => "Spend Relic · secure".into(),
+            _ => "Spend Psionic · lead-card action".into(),
+        },
         Kind::EndTurn => "End turn".into(),
         Kind::Tax => format!("Tax {}", sys_name(v[1] as usize)),
+        Kind::Influence => format!("Influence {} · 1 agent", court_name(st, v[1])),
         Kind::BuildCity => format!("Build city · {}", sys_name(v[1] as usize)),
         Kind::BuildPort => format!("Build starport · {}", sys_name(v[1] as usize)),
         Kind::BuildShips => format!("Build ships · {}", sys_name(v[1] as usize)),
@@ -314,7 +321,7 @@ pub fn action_text(a: Action) -> String {
             let (asl, sk, rd) = (v[3] / 49, v[3] / 7 % 7, v[3] % 7);
             format!("Battle · {} vs {} ({}A {}S {}R)", sys_name(v[1] as usize), NAMES[v[2] as usize], asl, sk, rd)
         }
-        Kind::Secure => format!("Secure {} · {} {}", COURT_CARDS[v[1] as usize], COURT_COST, if v[2] == 4 { "Psionic" } else { "Relic" }),
+        Kind::Secure => format!("Secure {}", court_name(st, v[1])),
         Kind::Lore => "Spend Lore · extra action".into(),
     }
 }
@@ -457,10 +464,10 @@ fn ledger(ctx: &egui::Context, h: &HudInput, s: &State, goal: i64) -> bool {
                         ui.end_row();
                         for a in 0..5 {
                             let rank = ranks[a];
-                            let vals = if rank > 0 { State::marker_values(rank as usize - 1) } else { [0, 0] };
+                            let vals = s.ambition_values(a);
                             let top = (0..n).map(|p| s.ambition_tally(p, a)).max().unwrap_or(0);
                             plabel!(ui, "ledger", 3, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.0).color(if rank > 0 { INK } else { DIM }));
-                            plabel!(ui, "ledger", 3, &format!("rank.{a}"), RichText::new(if rank > 0 { ["1st", "2nd", "3rd"][rank as usize - 1] } else { "—" }).small().color(if rank > 0 { BRASS } else { DIM }));
+                            plabel!(ui, "ledger", 3, &format!("rank.{a}"), RichText::new(if rank > 0 { format!("×{rank}") } else { "—".into() }).small().color(if rank > 0 { BRASS } else { DIM }));
                             plabel!(ui, "ledger", 3, &format!("markers.{a}"), RichText::new(if rank > 0 { format!("{}/{}", vals[0], vals[1]) } else { "—".into() }).small().color(DIM));
                             for p in 0..n {
                                 let tally = s.ambition_tally(p, a);
@@ -476,7 +483,7 @@ fn ledger(ctx: &egui::Context, h: &HudInput, s: &State, goal: i64) -> bool {
                         ui.horizontal(|ui| {
                             plabel!(ui, "ledger", 3, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.5).color(if rank > 0 { INK } else { DIM }));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let tag = if rank > 0 { ["1ST", "2ND", "3RD"][rank as usize - 1] } else { "—" };
+                                let tag = if rank > 0 { let v = s.ambition_values(a); format!("{}/{}", v[0], v[1]) } else { "—".into() };
                                 plabel!(ui, "ledger", 3, &format!("rank.{a}"), head(tag, 10.0).color(if rank > 0 { BRASS } else { DIM }));
                             });
                         });
@@ -487,19 +494,19 @@ fn ledger(ctx: &egui::Context, h: &HudInput, s: &State, goal: i64) -> bool {
                 ui.add_space(8.0);
                 let bank: Vec<String> = (0..5).map(|t| format!("{} {}", RESOURCES[t], s.supply(t))).collect();
                 plabel!(ui, "ledger", 3, "bank", RichText::new(format!("BANK  {}", bank.join("  ·  "))).small().color(DIM));
-                plabel!(ui, "ledger", 3, "note.trophies", RichText::new("Trophies are destroyed enemy pieces, ships and buildings. Captives are taken one per enemy city destroyed in battle. Each declared ambition pays its marker values to the highest tally.").small().color(DIM));
+                plabel!(ui, "ledger", 3, "note.trophies", RichText::new("Trophies are destroyed enemy pieces. Captives are rival agents taken by taxing their cities or securing Court cards. Each declared ambition pays the first and second place power of all its markers; Court card icons count with resources.").small().color(DIM));
                 ui.add_space(8.0);
-                plabel!(ui, "ledger", 3, "title.court", head("COURT · SECURE WITH 1 RELIC", 10.0).color(DIM));
+                plabel!(ui, "ledger", 3, "title.court", head("COURT · INFLUENCE WITH AGENTS, SECURE WITH THE MOST", 10.0).color(DIM));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(10.0, 4.0);
-                    for slot in 0..5 {
+                    for slot in 0..s.court_slots() {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 5.0;
                             match s.court_card(slot) {
                                 Some(card) => {
                                     let (art, _) = ui.allocate_exact_size(egui::vec2(24.0, 30.0), egui::Sense::hover());
                                     courtart::paint(ui.painter(), art, card, true, 1.0);
-                                    plabel!(ui, "ledger", 3, &format!("court.{slot}"), RichText::new(format!("{} · {} RELIC", card.name().to_uppercase(), COURT_COST)).small().color(INK))
+                                    plabel!(ui, "ledger", 3, &format!("court.{slot}"), RichText::new(format!("{} · {}", card.name().to_uppercase(), (0..n).map(|p| format!("{} {}", seat_short(h, p), s.agents_on(slot, p))).collect::<Vec<_>>().join(" "))).small().color(INK))
                                 }
                                 None => plabel!(ui, "ledger", 3, &format!("court.{slot}"), RichText::new("—").small().color(DIM)),
                             };
@@ -516,7 +523,7 @@ fn ledger(ctx: &egui::Context, h: &HudInput, s: &State, goal: i64) -> bool {
                     };
                     plabel!(ui, "ledger", 3, &format!("secured.{p}"), RichText::new(text).small().color(DIM));
                 }
-                plabel!(ui, "ledger", 3, "court.note", RichText::new(format!("Each secured card stays in its player's panel and scores {} power. Court cards are not refilled.", COURT_VALUE)).small().color(DIM));
+                plabel!(ui, "ledger", 3, "court.note", RichText::new(format!("A secured card stays in its player's panel: a resource icon for ambitions and a lasting effect. The row is refilled from the deck ({} left).", s.court_deck())).small().color(DIM));
             });
             crate::probe::panel("ledger", 3, resp.response.rect);
         });
@@ -621,7 +628,10 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                             let (cr, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                             paint_captive(ui.painter(), cr, if cap > 0 { CAPTIVE } else { DIM });
                             plabel!(ui, "standings", 1, &format!("cap.{p}"), RichText::new(format!("CAPTIVES {}", cap)).small().color(if cap > 0 { INK } else { DIM }))
-                                .on_hover_text("One per enemy city destroyed in battle");
+                                .on_hover_text("Rival agents taken by taxing their cities or securing Court cards");
+                            ui.add_space(4.0);
+                            plabel!(ui, "standings", 1, &format!("agents.{p}"), RichText::new(format!("AGENTS {}", s.agents_left(p))).small().color(DIM))
+                                .on_hover_text("Agents in supply for Influence");
                             let lore = s.lore(p);
                             if lore > 0 {
                                 ui.add_space(4.0);
@@ -641,9 +651,9 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                         }
                         crate::probe::ptext_wrap(ui, "standings", 1, &format!("secure.{p}"), RichText::new(text).small().color(if names.is_empty() { DIM } else { BRASS }))
                             .on_hover_text({
-                                let mut t = String::from("Court cards: +1 power each, and a lasting effect.");
+                                let mut t = String::from("Court cards: a resource icon for ambitions and a lasting effect.");
                                 for c in &secured {
-                                    t.push_str(&format!("\n{}: {}", c.name(), COURT_EFFECTS[c.0 as usize]));
+                                    t.push_str(&format!("\n{} ({}): {}", c.name(), RESOURCES[c.icon()], c.effect()));
                                 }
                                 t
                             });
@@ -654,56 +664,6 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 }
             }
 
-            ui.add_space(7.0);
-            let court_title = if s.is_over() { "COURT · SECURED CARDS KEPT" } else { "COURT · CLICK A CARD · 1 RELIC" };
-            let narrow = ctx.screen_rect().width() < 620.0;
-            plabel!(ui, "standings", 1, "court.title", head(court_title, if narrow { 8.0 } else { 9.0 }).color(DIM));
-            ui.add_space(3.0);
-            let legal = s.legal_actions();
-            let can_act = !s.is_over() && !h.busy && !h.bots[cur];
-            let cw = if narrow { 33.0 } else { 41.0 };
-            let art_h = if narrow { 27.0 } else { 34.0 };
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(if narrow { 2.0 } else { 4.0 }, 0.0);
-                for slot in 0..5 {
-                    // The Pilgrim may pay with Psionic when they hold no Relic.
-                    let relic = Action([15, slot as i64, 0, 0]);
-                    let action = if legal.contains(&relic) { relic } else { Action([15, slot as i64, 4, 0]) };
-                    let enabled = can_act && legal.contains(&action);
-                    let card = s.court_card(slot);
-                    let tile = ui.allocate_ui_with_layout(
-                        egui::vec2(cw, if narrow { 42.0 } else { 50.0 }),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            ui.set_max_width(cw);
-                            let (art, _) = ui.allocate_exact_size(egui::vec2(cw, art_h), egui::Sense::hover());
-                            match card {
-                                Some(c) => courtart::paint(ui.painter(), art, c, enabled, 1.0),
-                                None => {
-                                    ui.painter().rect_filled(art, 2.0, Color32::from_rgb(19, 21, 28));
-                                    ui.painter().rect_stroke(art, 2.0, egui::Stroke::new(1.0, HAIR));
-                                }
-                            }
-                            match card {
-                                Some(c) => plabel!(ui, "standings", 1, &format!("court.{slot}"), head(c.name().to_uppercase(), if narrow { 6.0 } else { 7.0 }).color(if enabled { INK } else { DIM })),
-                                None => plabel!(ui, "standings", 1, &format!("court.{slot}"), head("—", 8.0).color(DIM)),
-                            };
-                        },
-                    );
-                    let resp = tile.response.interact(egui::Sense::click());
-                    if enabled && resp.clicked() {
-                        out.action = Some(action);
-                    }
-                    if let Some(c) = card {
-                        if enabled {
-                            let pay = if action.0[2] == 4 { "Psionic" } else { "Relic" };
-                            resp.on_hover_text(format!("Secure {} · 1 {pay} → +1 power and: {}. No action pip; the row is not refilled.", c.name(), COURT_EFFECTS[c.0 as usize]));
-                        } else {
-                            resp.on_hover_text(format!("{}: {}. Secure with 1 Relic on your action step.", c.name(), COURT_EFFECTS[c.0 as usize]));
-                        }
-                    }
-                }
-            });
         });
         crate::probe::panel("standings", 1, resp.response.rect);
     });
@@ -754,7 +714,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                                 ui.horizontal(|ui| {
                                     plabel!(ui, panel_id, 1, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.0).color(if rank > 0 { INK } else { DIM }));
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        let tag = if rank > 0 { ["1ST", "2ND", "3RD"][rank as usize - 1] } else { "—" };
+                                        let tag = if rank > 0 { let v = s.ambition_values(a); format!("{}/{}", v[0], v[1]) } else { "—".into() };
                                         plabel!(ui, panel_id, 1, &format!("rank.{a}"), head(tag, 9.0).color(if rank > 0 { BRASS } else { DIM }));
                                     });
                                 });
@@ -763,7 +723,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                         }
                     });
                 }
-                plabel!(ui, panel_id, 1, "court", RichText::new(format!("COURT · {} available · {} relic each", s.court_available(), COURT_COST)).small().color(DIM));
+                plabel!(ui, panel_id, 1, "court", RichText::new(format!("COURT · {} in the row · {} in the deck", s.court_available(), s.court_deck())).small().color(DIM));
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
@@ -900,7 +860,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
             let acts = s.legal_actions();
             let show = |ui: &mut egui::Ui, a: Action, out: &mut HudOutput| {
                 let sys = action_systems(a);
-                let b = ui.add(egui::Button::new(action_text(a)).wrap());
+                let b = ui.add(egui::Button::new(action_text(a, s)).wrap());
                 if b.hovered() {
                     out.hover_systems = sys;
                 }
@@ -915,11 +875,6 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 }
                 ui.horizontal_wrapped(|ui| {
                     for a in acts.iter().copied() {
-                        // Court cards are the clickable art tiles below the
-                        // standings; do not duplicate them as text buttons.
-                        if a.0[0] == 15 {
-                            continue;
-                        }
                         let sys = action_systems(a);
                         match h.selected {
                             Some(sel) if !sys.is_empty() && !sys.contains(&sel) => continue,
@@ -969,7 +924,7 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 }
                 crate::cards::end_hand_frame(&seen);
                 ui.horizontal_wrapped(|ui| {
-                    for a in acts.iter().copied().filter(|a| a.card().is_none() && a.0[0] != 15) {
+                    for a in acts.iter().copied().filter(|a| a.card().is_none()) {
                         show(ui, a, &mut out);
                     }
                 });
@@ -996,6 +951,11 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     out
 }
 
+/// Name of the Court card in row slot `slot`.
+fn court_name(s: &State, slot: i64) -> &'static str {
+    s.court_card(slot.max(0) as usize).map(|c| c.name()).unwrap_or("—")
+}
+
 pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
     let nm = |p: i64| names[p as usize];
     Some(match e[0] {
@@ -1012,7 +972,8 @@ pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
         12 => format!("{} moves {} ships {} to {}", nm(e[1]), e[4], sys_name(e[2] as usize), sys_name(e[3] as usize)),
         13 => format!("{} repairs at {}", nm(e[1]), sys_name(e[2] as usize)),
         14 => format!("{} attacks {} at {}", nm(e[1]), nm(e[3]), sys_name(e[2] as usize)),
-        15 => format!("{} secures {} (+{} power)", nm(e[1]), COURT_CARDS[e[3] as usize], COURT_VALUE),
+        15 => format!("{} secures {}{}", nm(e[1]), COURT_CARDS[e[3] as usize], if e[4] > 0 { format!(", taking {} captive", e[4]) } else { String::new() }),
+        17 => format!("{} influences {}", nm(e[1]), COURT_CARDS[e[3] as usize]),
         16 => format!("{} spends Lore for an extra action", nm(e[1])),
         20 => format!("Round over, {} holds the initiative", nm(e[1])),
         21 => format!("Chapter {} scored", e[1]),

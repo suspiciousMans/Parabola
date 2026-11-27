@@ -28,30 +28,35 @@ Pick 2 to 4 players, each Human or Bot (hot-seat asks the next human to confirm 
 
 ## Rules in one screen
 
-* Deal: 6 action cards each (4 suits: Move, Fight, Build, Influence; ranks 1 to 7).
-* A trick: the holder of the initiative leads a card and takes **2 actions** of its suit. Everyone else plays in
-  turn order and takes **1 action**: they must follow the lead suit if they can, otherwise they may pivot with any
-  card and take an action of *that* card's suit. The highest card of the lead suit wins: +1 power and the lead.
-* Actions: **Tax** for a resource at a system where you have a city; **Build** a city or starport on a system where
-  you have a piece; **Build ships** at your starport from reserve; **Move** ships along a lane (a starport lets
-  them take any path); **Repair** one damaged piece; **Battle** with assault, skirmish and raid dice. A **Prelude**
-  spends a resource for an extra action; Relics are reserved for the Court.
-* Court: five face-up court cards sit on the board. In your action step, spend 1 Relic to secure one; it
-  leaves the row and stays in your player panel, scoring 1 power and a lasting effect. The row is not refilled.
-  Envoy: Tax takes one more. Seal: ignore the first building hit in each battle against you. Writ: Repair
-  fixes every damaged piece of yours in the system. Pact: ignore the first self hit in each of your attacks.
-  Accord: +1 power at each chapter end.
+* Deal: 6 action cards each (4 suits: Administration, Aggression, Construction, Mobilization; ranks 1 to 7).
+* Lead: the initiative holder leads a card and takes actions equal to its pips, or passes the initiative to the
+  next player with cards. If every player passes in a row, the chapter ends. Leading may declare an ambition:
+  the lowest open marker goes on it and the lead number becomes zero.
+* Follow (mandatory): **Surpass** with a higher card of the lead suit for its full pips, **Copy** with any card
+  face down for one lead-suit action, or **Pivot** with another suit for one action of that suit. A follower may
+  also **Seize** the initiative with a second face-down card. Initiative goes to the seizer, else the highest
+  surpass, else stays with the leader.
+* Suits: Administration = Tax, Repair, Influence. Aggression = Battle, Move, Secure. Construction = Build,
+  Repair. Mobilization = Move, Influence.
+* Actions: **Tax** a city's resource (taxing a rival city also captures one of their agents, once per city per
+  turn); **Build** a city, starport, or ships (once per starport per turn); **Move**; **Repair**; **Battle**.
+  A **Prelude** spends a resource for its action: Material builds, Fuel moves, Weapons battle, Relics secure,
+  Psionic takes a lead-suit action.
+* Court: a row of 4 cards (3 with two players) along the top edge of the board, refilled from a 10-card deck.
+  **Influence** places an agent on a card. **Secure** takes a card where you have the most agents: rival agents
+  there become your captives and yours come home. Secured cards keep their effect and add icons to ambitions.
+  Each player has 10 agents.
 * Leaders: each player is dealt one at setup, with one starting resource and one rule bend. Broker (Fuel):
   Build ships places one more. Admiral (Weapons): one more ship hit when attacking. Architect (Material):
   builds are never damaged. Seer (Psionic): +1 power at chapter end while holding Psionic. Pilgrim (Relics):
-  may secure with Psionic. Corsair (Fuel): each raid key takes two.
-* Lore: after each chapter is scored, the player(s) with the least power gain a Lore token (at most 3). Once
-  per turn on your action step, spend one for an extra action of the current suit.
-* After 6 tricks the chapter's declared ambitions score their marker values, then Accord and the Seer pay their
-  +1, and the player(s) furthest behind gain Lore. Cities score nothing directly: they let you Tax.
-  The game ends when a player reaches the power goal at a chapter end, or after five chapters; most power wins.
+  Influence places two agents. Corsair (Fuel): each raid key takes two.
+* Scoring: each declared ambition pays the sum of its markers to first and second place. Ties for first take
+  the second value; ties for second score nothing. First place adds +2 with four cities built, +5 with five.
+  Markers flip to higher values after each chapter. Scored trophies and captives go back to their owners.
+  The power track runs along the bottom edge. The game ends at the power goal or after five chapters; ties go to
+  turn order.
 
-The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 21 tests in `rules/ox/tests/`.
+The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 29 tests in `rules/ox/tests/`.
 
 ## Layout
 
