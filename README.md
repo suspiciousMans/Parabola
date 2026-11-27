@@ -45,18 +45,25 @@ Pick 2 to 4 players, each Human or Bot (hot-seat asks the next human to confirm 
 * Court: a row of 4 cards (3 with two players) along the top edge of the board, refilled from a 10-card deck.
   **Influence** places an agent on a card. **Secure** takes a card where you have the most agents: rival agents
   there become your captives and yours come home. Secured cards keep their effect and add icons to ambitions.
-  Each player has 10 agents.
+  Each player has 10 agents. The ten cards each have their own effect: Envoy (Tax takes one more), Seal (ignore
+  the first building hit against you), Writ (Repair fixes everything of yours in the system), Pact (ignore your
+  first self hit), Accord (+1 power at chapter end), Herald (+1 power when you secure), Warden (taxing your cities
+  captures none of your agents), Charter (building a city also takes its resource), Oath (Influence places one
+  more agent), Concord (gain a Lore at chapter end).
+* Two players: the resources of the out-of-play planets sit on the ambitions and compete as a third scorer that
+  never gains power (Weapons count as its trophies). Each chapter, the player without the initiative may take a
+  mulligan: return the hand and draw six cards that were not dealt.
 * Leaders: each player is dealt one at setup, with one starting resource and one rule bend. Broker (Fuel):
   Build ships places one more. Admiral (Weapons): one more ship hit when attacking. Architect (Material):
   builds are never damaged. Seer (Psionic): +1 power at chapter end while holding Psionic. Pilgrim (Relics):
-  Influence places two agents. Corsair (Fuel): each raid key takes two.
+  Influence places one more agent. Corsair (Fuel): each raid key takes two.
 * Scoring: each declared ambition pays the sum of its markers to first and second place. Ties for first take
   the second value; ties for second score nothing. First place adds +2 with four cities built, +5 with five.
   Markers flip to higher values after each chapter. Scored trophies and captives go back to their owners.
   The power track runs along the bottom edge. The game ends at the power goal or after five chapters; ties go to
   turn order.
 
-The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 29 tests in `rules/ox/tests/`.
+The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 32 tests in `rules/ox/tests/`.
 
 ## Layout
 

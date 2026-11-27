@@ -311,7 +311,7 @@ pub fn action_text(a: Action, st: &State) -> String {
         },
         Kind::EndTurn => "End turn".into(),
         Kind::Tax => format!("Tax {}", sys_name(v[1] as usize)),
-        Kind::Influence => format!("Influence {} · 1 agent", court_name(st, v[1])),
+        Kind::Influence => format!("Influence {}", court_name(st, v[1])),
         Kind::BuildCity => format!("Build city · {}", sys_name(v[1] as usize)),
         Kind::BuildPort => format!("Build starport · {}", sys_name(v[1] as usize)),
         Kind::BuildShips => format!("Build ships · {}", sys_name(v[1] as usize)),
@@ -323,6 +323,7 @@ pub fn action_text(a: Action, st: &State) -> String {
         }
         Kind::Secure => format!("Secure {}", court_name(st, v[1])),
         Kind::Lore => "Spend Lore · extra action".into(),
+        Kind::Mulligan => if v[1] == 1 { "Mulligan · draw a new hand".into() } else { "Keep this hand".into() },
     }
 }
 

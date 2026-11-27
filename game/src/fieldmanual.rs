@@ -185,7 +185,7 @@ fn court(ui: &mut egui::Ui) {
                 courtart::paint(ui.painter(), r, card, true, 1.0);
                 ui.add_space(3.0);
                 ui.label(head(card.name().to_uppercase(), 10.0));
-                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot % 5]).small().color(DIM));
+                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot]).small().color(DIM));
             });
         }
     });
@@ -207,6 +207,7 @@ fn court(ui: &mut egui::Ui) {
 fn scoring(ui: &mut egui::Ui) {
     rule(ui, "AMBITIONS", "A leader can declare an ambition by placing a marker. At chapter end each ambition pays the sum of its markers to first and second place. Ties for first score second place; ties for second score nothing.");
     rule(ui, "CITIES", "Cities let you Tax their planet's resource. First place on an ambition gains +2 with four cities built, or +5 with all five.");
+    rule(ui, "TWO PLAYERS", "The resources of the out-of-play planets sit on the ambitions and compete as a third scorer that never gains power; Weapons count as its trophies. Each chapter the player without the initiative may take a mulligan for six undealt cards.");
     rule(ui, "FIVE CHAPTERS", "The game runs up to five chapters. If a player reaches the power goal at a chapter end, the game ends there; otherwise the highest power after chapter five wins.");
     rule(ui, "TROPHIES & CAPTIVES", "Trophies are destroyed enemy pieces. Captives are rival agents taken by Secure or by taxing a rival city. Both return to their owners once scored.");
 }
