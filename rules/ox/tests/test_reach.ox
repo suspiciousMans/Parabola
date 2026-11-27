@@ -110,10 +110,8 @@ fn test_piece_conservation() {
     }
 }
 
-// The capture path: a destroyed city is a trophy and a captive; a destroyed
-// starport is only a trophy. The rest of the defender's slots are cleared so
-// the hit lands on the piece under test.
-fn test_destroyed_city_takes_a_captive() {
+// A destroyed city is a trophy; captives come from taxing and securing.
+fn test_destroyed_city_is_a_trophy() {
     let s = new_game(2, 11, 0)
     let sys = -1
     let slot = -1
@@ -127,61 +125,101 @@ fn test_destroyed_city_takes_a_captive() {
     }
     assert(sys >= 0)
     let t = s
-    for sl in range(0, 2) {
-        if sl != slot && slot_kind(t, sys, sl) != 0 {
-            t[slot_i(sys, sl)] = -1
-            t[slot_i(sys, sl) + 1] = 0
-            t[slot_i(sys, sl) + 2] = 0
-        }
-    }
     t[slot_i(sys, slot) + 2] = 1
-    let before_t = trophies(t, 1)
-    let before_c = captives(t, 1)
     let after = hit_buildings(t, sys, 0, 1, 1)
     assert_eq(slot_kind(after, sys, slot), 0)
-    assert_eq(trophies(after, 1), before_t + 1)
-    assert_eq(captives(after, 1), before_c + 1)
+    assert_eq(trophies(after, 1), trophies(t, 1) + 1)
+    assert_eq(captives(after, 1), captives(t, 1))
 }
 
-fn test_court_row_starts_full() {
+fn test_court_row_starts_full_from_the_deck() {
     for n in [2, 3, 4] {
         let s = new_game(n, 11, 0)
-        for i in range(0, 5) { assert_eq(court(s, i), i) }
-        for p in range(0, n) { assert_eq(secured(s, p), 0) }
+        for i in range(0, row_size(s)) {
+            assert(court(s, i) >= 0)
+            assert(!has_card(s[h_deck()], court(s, i)))
+        }
+        assert_eq(court(s, 4), -1)
+        if n == 2 { assert_eq(court(s, 3), -1) }
+        for p in range(0, n) {
+            assert_eq(secured(s, p), 0)
+            assert_eq(agents_left(s, p), 10)
+        }
     }
 }
 
-fn test_court_secure_spends_a_relic_and_scores_one_power() {
-    let s = new_game(3, 11, 0)
+fn act_with(s, p, suit, pips) {
     let t = s
-    t[h_cur()] = 0
+    t[h_cur()] = p
     t[h_phase()] = 2
-    t[h_acts()] = 0
-    t[pb(0) + 1 + 3] = 1
-    let a = [15, 0, 0, 0]
-    assert(is_legal(t, a))
-    let before_power = power(t, 0)
-    let before_bank = supply(t, 3)
-    let u = apply(t, a)
-    assert_eq(court(u, 0), -1)
-    assert_eq(res(u, 0, 3), 0)
-    assert_eq(supply(u, 3), before_bank + 1)
-    assert_eq(power(u, 0), before_power + 1)
-    assert_eq(secured(u, 0), pow2(0))
+    t[h_act_suit()] = suit
+    t[h_acts()] = pips
+    t[h_acted()] = 0
+    return t
 }
 
-fn test_court_secure_needs_a_relic_and_a_card() {
+fn test_influence_then_secure_takes_captives_and_refills() {
     let s = new_game(3, 11, 0)
-    let t = s
-    t[h_cur()] = 0
-    t[h_phase()] = 2
-    t[h_acts()] = 0
-    t[pb(0) + 1 + 3] = 0
-    assert(!is_legal(t, [15, 0, 0, 0]))
+    let t = act_with(s, 1, 0, 1)
+    t[pb(1) + 16] = 0
+    t[pb(0) + 16] = 0
+    assert(is_legal(t, [17, 0, 0, 0]))
+    t = apply(t, [17, 0, 0, 0])
+    assert_eq(agents_on(t, 0, 1), 1)
+    t = act_with(t, 0, 3, 2)
+    t = apply(t, [17, 0, 0, 0])
+    assert(!can_secure(t, 0, 0))
+    t = act_with(t, 0, 3, 1)
+    t = apply(t, [17, 0, 0, 0])
+    assert_eq(agents_on(t, 0, 0), 2)
+    assert_eq(agents_left(t, 0), 8)
+    let m = act_with(t, 0, 3, 1)
+    assert(!is_legal(m, [15, 0, 0, 0]))
+    let u = act_with(t, 0, 1, 1)
+    let c = court(u, 0)
+    assert(is_legal(u, [15, 0, 0, 0]))
+    let v = apply(u, [15, 0, 0, 0])
+    assert(has_card(secured(v, 0), c))
+    assert(court(v, 0) >= 0)
+    assert(court(v, 0) != c)
+    assert_eq(captives(v, 0), 1)
+    assert_eq(cap_of(v, 0, 1), 1)
+    assert_eq(agents_left(v, 0), 10)
+    assert_eq(agents_left(v, 1), 9)
+    assert_eq(agents_on(v, 0, 1), 0)
+}
+
+fn test_relic_prelude_buys_a_secure() {
+    let s = new_game(3, 11, 0)
+    let t = act_with(s, 0, 2, 1)
+    t[agents_base()] = 1
     t[pb(0) + 1 + 3] = 1
-    t[h_court()] = -1
     assert(!is_legal(t, [15, 0, 0, 0]))
-    assert(is_legal(t, [15, 1, 0, 0]))
+    let u = apply(t, [6, 3, 0, 0])
+    assert(is_legal(u, [15, 0, 0, 0]))
+}
+
+fn test_taxing_a_rival_city_captures_an_agent() {
+    let s = new_game(2, 11, 0)
+    let sys = -1
+    let sl = -1
+    for i in range(0, n_sys()) {
+        for k in range(0, 2) {
+            if sys < 0 && slot_kind(s, i, k) == 1 && slot_owner(s, i, k) == 1 {
+                sys = i
+                sl = k
+            }
+        }
+    }
+    let t = act_with(s, 0, 0, 2)
+    t[ship_i(sys, 1, 0)] = 0
+    t[ship_i(sys, 1, 1)] = 0
+    t[ship_i(sys, 0, 0)] = 2
+    assert(is_legal(t, [8, sys, sl, 0]))
+    let u = apply(t, [8, sys, sl, 0])
+    assert_eq(captives(u, 0), 1)
+    assert_eq(agents_left(u, 1), 9)
+    assert(!is_legal(u, [8, sys, sl, 0]))
 }
 
 fn test_destroyed_starport_is_only_a_trophy() {
@@ -229,7 +267,6 @@ fn act_as(s, p) {
 fn give_court(s, p, c) {
     let t = s
     t[pb(p) + 15] = secured(t, p) + pow2(c)
-    t[h_court() + c] = -1
     return t
 }
 
@@ -253,14 +290,12 @@ fn test_leaders_are_distinct_and_start_with_their_resource() {
 
 fn test_battle_does_not_touch_the_court_row() {
     let s = new_game(2, 11, 0)
-    let t = give_court(s, 1, 0)
-    // put both fleets in one system and attack
+    let t = s
     let sys = 10
     t[ship_i(sys, 0, 0)] = 6
     t[ship_i(sys, 1, 0)] = 3
     let u = do_battle(t, 0, sys, 1, pack_dice(0, 6, 0))
-    assert_eq(court(u, 0), -1)
-    for i in range(1, 5) { assert_eq(court(u, i), i) }
+    for i in range(0, 3) { assert_eq(court(u, i), court(s, i)) }
 }
 
 fn test_envoy_taxes_two() {
@@ -270,10 +305,10 @@ fn test_envoy_taxes_two() {
         for sl in range(0, 2) { if sys < 0 && slot_kind(s, i, sl) == 1 && slot_owner(s, i, sl) == 0 { sys = i } }
     }
     let ty = planet_type(sys)
-    let plain = do_tax(s, 0, sys)
+    let plain = do_tax(s, 0, sys, 0)
     assert_eq(res(plain, 0, ty), res(s, 0, ty) + 1)
     let t = give_court(s, 0, court_envoy())
-    let u = do_tax(t, 0, sys)
+    let u = do_tax(t, 0, sys, 0)
     assert_eq(res(u, 0, ty), res(s, 0, ty) + 2)
     assert_eq(supply(u, ty), supply(s, ty) - 2)
 }
@@ -293,19 +328,12 @@ fn test_writ_repairs_everything_in_the_system() {
     assert_eq(damaged(v, 10, 0), 2)
 }
 
-fn test_pilgrim_secures_with_psionic() {
+fn test_pilgrim_influences_twice() {
     let s = new_game(3, 11, 0)
-    let t = act_as(s, 0)
+    let t = act_with(s, 0, 0, 1)
     t[pb(0) + 16] = 4
-    t[pb(0) + 1 + 3] = 0
-    t[pb(0) + 1 + 4] = 1
-    assert(is_legal(t, [15, 2, 4, 0]))
-    assert(!is_legal(t, [15, 2, 0, 0]))
-    let u = apply(t, [15, 2, 4, 0])
-    assert_eq(res(u, 0, 4), 0)
-    assert(has_court(u, 0, 2))
-    t[pb(0) + 16] = 0
-    assert(!is_legal(t, [15, 2, 4, 0]))
+    let u = apply(t, [17, 1, 0, 0])
+    assert_eq(agents_on(u, 1, 0), 2)
 }
 
 fn test_lore_goes_to_the_trailing_player_and_buys_an_action() {
@@ -336,4 +364,106 @@ fn test_accord_scores_at_chapter_end() {
     let u = end_chapter(t)
     let v = end_chapter(base)
     assert_eq(power(u, 0) - power(v, 0), 1)
+}
+
+// ---- card play (rulebook pp. 8-11) -------------------------------------------
+
+fn test_declaring_sets_the_lead_number_to_zero() {
+    let s = new_game(3, 5, 0)
+    let p = cur(s)
+    let c = -1
+    for x in cards_in_hand(s, p) { if c < 0 && card_num(x) >= 2 && card_num(x) <= 6 { c = x } }
+    assert(c >= 0)
+    let t = apply(s, [0, c, card_num(c) - 2, 0])
+    assert_eq(t[h_lead_num()], 0)
+    assert_eq(t[h_amb() + card_num(c) - 2], 1)
+    assert_eq(t[h_amb_first() + card_num(c) - 2], 5)
+    let u = apply(s, [0, c, -1, 0])
+    assert_eq(u[h_lead_num()], card_num(c))
+}
+
+fn test_an_ambition_can_take_a_second_marker() {
+    let s = new_game(3, 5, 0)
+    let t = s
+    t[h_amb()] = 1
+    t[h_amb_count()] = 1
+    t[h_mk_taken()] = 4
+    assert_eq(len(ambition_options(t, 2)), 2)
+    assert_eq(best_marker(t), 1)
+}
+
+fn test_followers_cannot_pass() {
+    let s = new_game(3, 5, 0)
+    let t = apply(s, legal_actions(s)[0])
+    let guard = 0
+    while phase(t) == 2 && guard < 20 {
+        t = apply(t, [7, 0, 0, 0])
+        guard = guard + 1
+    }
+    assert_eq(phase(t), 1)
+    for a in legal_actions(t) { assert(a[0] != 4) }
+}
+
+fn test_passing_the_initiative_moves_it_and_all_passing_ends_the_chapter() {
+    let s = new_game(3, 5, 0)
+    let p = cur(s)
+    let t = apply(s, [4, 0, 0, 0])
+    assert_eq(t[h_init()], (p + 1) % 3)
+    assert_eq(phase(t), 0)
+    let u = apply(t, [4, 0, 0, 0])
+    let v = apply(u, [4, 0, 0, 0])
+    assert_eq(chapter(v), 2)
+}
+
+fn test_initiative_goes_to_the_highest_surpass() {
+    let s = new_game(3, 5, 0)
+    let t = s
+    t[h_init()] = 0
+    t[h_seized()] = -1
+    t[h_best_player()] = 2
+    t[h_best_num()] = 5
+    let u = end_round(t)
+    assert_eq(u[h_init()], 2)
+    t[h_best_player()] = -1
+    let v = end_round(t)
+    assert_eq(v[h_init()], 0)
+    t[h_seized()] = 1
+    let w = end_round(t)
+    assert_eq(w[h_init()], 1)
+}
+
+fn test_scoring_ties_and_city_bonus() {
+    let s = new_game(3, 11, 0)
+    let t = s
+    for p in range(0, 3) {
+        t[pb(p)] = 0
+        for r in range(0, 5) { t[pb(p) + 1 + r] = 0 }
+    }
+    t[h_amb() + 3] = 1
+    t[h_amb_first() + 3] = 5
+    t[h_amb_second() + 3] = 3
+    t[pb(0) + 1 + 3] = 2
+    t[pb(1) + 1 + 3] = 1
+    t[pb(2) + 1 + 3] = 1
+    let u = score_ambition(t, 3)
+    assert_eq(power(u, 0), 5)
+    assert_eq(power(u, 1), 0)
+    t[pb(1) + 1 + 3] = 2
+    let v = score_ambition(t, 3)
+    assert_eq(power(v, 0), 3)
+    assert_eq(power(v, 1), 3)
+    assert_eq(power(v, 2), 0)
+    t[pb(1) + 1 + 3] = 0
+    t[pb(0) + 6] = 0
+    let w = score_ambition(t, 3)
+    assert_eq(power(w, 0), 10)
+}
+
+fn test_markers_flip_each_chapter() {
+    let s = new_game(3, 11, 0)
+    assert_eq(marker_pair(s, 0)[0], 2)
+    let t = s
+    t[h_flips()] = 1
+    assert_eq(marker_pair(t, 0)[0], 4)
+    assert_eq(marker_pair(t, 2)[0], 5)
 }

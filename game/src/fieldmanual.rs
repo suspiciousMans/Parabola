@@ -27,41 +27,41 @@ const TUTORIAL: [(&str, &str, &[&str]); 6] = [
     ),
     (
         "2 · LEAD A TRICK",
-        "The player holding the initiative leads one action card. That player then takes two actions of the card's suit.",
+        "The player holding the initiative leads one action card, or passes the initiative to the next player. The leader takes actions equal to the card's pips.",
         &[
             "Four suits: Influence, Aggression, Construction and Mobilization.",
-            "The number on the card is its strength when the trick is compared.",
+            "Leading may declare an ambition: the lowest open marker goes on it and the lead number becomes zero.",
         ],
     ),
     (
         "3 · FOLLOW",
-        "Everyone else plays one card in turn order and takes one action. Follow the lead suit if you can, otherwise pivot with any card.",
+        "Everyone else must play a card in turn order. Surpass with a higher card of the lead suit for its full pips, copy with any card face down for one action of the lead suit, or pivot with another suit for one action of that suit.",
         &[
-            "Surpass or copy to stay in the lead suit; pivot takes an action of the card you played.",
-            "The highest lead-suit card wins the trick: +1 power and the initiative.",
+            "A follower may also seize the initiative by playing a second card face down.",
+            "The initiative goes to whoever seized it, else the highest surpass, else stays with the leader.",
         ],
     ),
     (
         "4 · TAKE ACTIONS",
         "Actions come from the suit you played. The status line at the bottom shows what is legal now, and the board filters actions when you select a system.",
         &[
-            "Tax, build, move, repair, fight, or spend a resource for an extra action.",
+            "Administration: tax, repair, influence. Aggression: battle, move, secure. Construction: build, repair. Mobilization: move, influence.",
             "Click a system on the board to narrow the action list to that system.",
         ],
     ),
     (
-        "5 · SECURE THE COURT",
-        "On your action step, spend 1 Relic to secure one face-up Court card. It scores 1 power immediately and stays in your panel.",
+        "5 · INFLUENCE AND SECURE THE COURT",
+        "Influence places one of your agents on a Court card. Secure takes a card where you have the most agents: rival agents there become your captives and your own return to you.",
         &[
-            "Securing does not spend an action pip and the Court row is not refilled.",
-            "Click a Court card in the left panel, or open the Ledger to see the whole row.",
+            "The row refills from the Court deck. Secured cards add their icons to ambitions.",
+            "The Court row runs along the top edge of the board, with agent stacks at each card's foot.",
         ],
     ),
     (
         "6 · SCORE THE CHAPTER",
-        "When the hands are empty the chapter ends. Declared ambitions pay their marker values; the Accord and the Seer add +1, and whoever is furthest behind gains Lore.",
+        "The chapter ends when hands are empty or every player passes in a row. Each declared ambition pays first and second place; first place also gains +2 with four cities built, or +5 with all five.",
         &[
-            "After scoring, the next chapter deals new hands. The Court row is not refilled.",
+            "Ties for first take second place value; ties for second score nothing. Markers flip to higher values each chapter.",
             "The board guide (G) labels the ring, Court, played cards, ambitions and power track.",
         ],
     ),
@@ -142,10 +142,10 @@ fn tutorial(ui: &mut egui::Ui, goal: i64) {
 }
 
 fn turn(ui: &mut egui::Ui) {
-    rule(ui, "ONE TRICK", "The initiative holder leads. They take two actions of the led suit; every other seat follows in turn order and takes one action.");
-    rule(ui, "FOLLOWING", "Follow the lead suit when you can. Otherwise pivot with any card and take an action of that card's suit. Surpass and copy keep you in the lead suit.");
-    rule(ui, "WINNING THE TRICK", "The highest card of the lead suit takes it: +1 power and the initiative. The cards go to the discard pile.");
-    rule(ui, "AFTER SIX TRICKS", "When every hand is empty the chapter scores and a new chapter deals fresh hands. The Court row is not refilled.");
+    rule(ui, "ONE TRICK", "The initiative holder leads a card (actions equal to its pips) or passes the initiative. Every other seat must follow in turn order.");
+    rule(ui, "FOLLOWING", "Surpass: higher card of the lead suit, full pips. Copy: any card face down, one action of the lead suit. Pivot: other suit, one action of that suit. Followers cannot pass.");
+    rule(ui, "WINNING THE TRICK", "Initiative goes to a seizing player, else the highest surpass, else stays with the leader. The cards go to the discard pile.");
+    rule(ui, "AFTER SIX TRICKS", "When every hand is empty, or all players pass in a row, the chapter scores and a new chapter deals fresh hands.");
 }
 
 fn actions(ui: &mut egui::Ui) {
@@ -155,9 +155,10 @@ fn actions(ui: &mut egui::Ui) {
         ("Build ships", "At your starport, taking ships from your reserve."),
         ("Move", "Move ships to adjacent systems. A starport lets you move along any path."),
         ("Repair", "Flip one damaged ship or building back to full strength."),
-        ("Battle", "Split up to 18 ships into assault, skirmish and raid dice. Hits damage and destroy; a destroyed city yields a trophy and a captive."),
-        ("Prelude", "Spend one resource for an extra action, once per action step. Relics are for the Court."),
-        ("Secure", "Spend 1 Relic on a Court card: +1 power and its lasting effect, no action pip, no refill."),
+        ("Battle", "Split up to 18 ships into assault, skirmish and raid dice. Hits damage and destroy; destroyed pieces become trophies."),
+        ("Prelude", "Spend a resource for an action of its kind: Material builds, Fuel moves, Weapons battle, Relics secure, Psionic takes a lead-suit action."),
+        ("Influence", "Place one agent on a Court card."),
+        ("Secure", "Take a Court card where you have the most agents. Rival agents there become captives; the row refills."),
         ("Lore", "Once per turn on your action step, spend a Lore token for one more action of the current suit."),
     ];
     for (name, body) in rows {
@@ -169,14 +170,14 @@ fn actions(ui: &mut egui::Ui) {
         });
     }
     ui.add_space(8.0);
-    ui.label(RichText::new("Damaged ships fight worse until repaired. Trophies and captives feed the Warlord and Tyrant ambitions.").small().color(DIM));
+    ui.label(RichText::new("Damaged ships fight worse until repaired. Trophies feed Warlord and captives feed Tyrant. Taxing a rival's city captures one of their agents.").small().color(DIM));
 }
 
 fn court(ui: &mut egui::Ui) {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 4.0);
-        for slot in 0..5 {
+        for slot in 0..10 {
             let card = reach_rules::CourtCard(slot as u8);
             ui.vertical(|ui| {
                 ui.set_width(86.0);
@@ -184,13 +185,13 @@ fn court(ui: &mut egui::Ui) {
                 courtart::paint(ui.painter(), r, card, true, 1.0);
                 ui.add_space(3.0);
                 ui.label(head(card.name().to_uppercase(), 10.0));
-                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot]).small().color(DIM));
+                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot % 5]).small().color(DIM));
             });
         }
     });
-    rule(ui, "SECURING", "On your action step, spend 1 Relic to take one face-up Court card. It scores 1 power at once, stays in your panel for the rest of the game, and its effect is yours from then on.");
-    rule(ui, "THE ROW", "Five cards are laid out at the start of the game. Securing removes a card and leaves an empty slot; the row is never refilled.");
-    rule(ui, "NO PIP", "Securing is separate from your normal actions: it does not spend an action pip.");
+    rule(ui, "SECURING", "Influence puts your agents on a Court card. Secure takes it if you have more agents there than any rival. Rival agents become your captives, your own agents come home, and the effect is yours from then on.");
+    rule(ui, "THE ROW", "Four cards (three with two players) sit along the top edge of the board. A secured card is replaced from the Court deck.");
+    rule(ui, "NO PIP", "Each player has ten agents. Agents in the Court or held captive are not in your supply.");
     ui.add_space(8.0);
     ui.label(head("LEADERS", 11.5));
     ui.label(RichText::new("Each player is dealt one leader at setup. It adds one starting resource and bends one rule.").small().color(DIM));
@@ -204,10 +205,10 @@ fn court(ui: &mut egui::Ui) {
 }
 
 fn scoring(ui: &mut egui::Ui) {
-    rule(ui, "AMBITIONS", "Five scoring cards sit at the right. A seat can declare an ambition; when the chapter ends, the highest tallies for the declared cards receive their marker values.");
-    rule(ui, "CITIES", "Cities score no power on their own: they let you Tax their planet's resource, and a destroyed city gives the attacker a trophy and a captive.");
+    rule(ui, "AMBITIONS", "A leader can declare an ambition by placing a marker. At chapter end each ambition pays the sum of its markers to first and second place. Ties for first score second place; ties for second score nothing.");
+    rule(ui, "CITIES", "Cities let you Tax their planet's resource. First place on an ambition gains +2 with four cities built, or +5 with all five.");
     rule(ui, "FIVE CHAPTERS", "The game runs up to five chapters. If a player reaches the power goal at a chapter end, the game ends there; otherwise the highest power after chapter five wins.");
-    rule(ui, "TROPHIES & CAPTIVES", "Trophies are destroyed enemy pieces. Captives are taken when an enemy city is destroyed in battle. They are public and feed Tyrant and Warlord.");
+    rule(ui, "TROPHIES & CAPTIVES", "Trophies are destroyed enemy pieces. Captives are rival agents taken by Secure or by taxing a rival city. Both return to their owners once scored.");
 }
 
 /// Draws the manual if it is open. The caller passes the table's power goal.

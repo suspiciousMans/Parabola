@@ -18,6 +18,7 @@ mod models;
 mod planets;
 mod probe;
 mod site;
+mod tabletex;
 mod ui;
 
 use camera::{ray_plane, BoardCamera};
@@ -47,9 +48,56 @@ fn cluster_angle(c: usize) -> f32 {
     (-85.0f32).to_radians() + c as f32 * TAU / 6.0
 }
 
-/// The power track sits inside the board's bottom margin, clear of the action
-/// strip and hand, so low-power pieces stay visible behind the HUD.
-const POWER_Z: f32 = 6.4;
+/// The power track runs along the board's bottom edge, outside the ring of
+/// clusters, as on the printed map: one numbered cell per point, 0 to 40.
+const TRACK_Z: f32 = 10.3;
+const TRACK_CELLS: usize = 41;
+const TRACK_X0: f32 = -12.6;
+const TRACK_CELL: f32 = 0.615;
+/// The board's gold border (the plate itself is open space).
+const BOARD_TOP: f32 = -12.6;
+const BOARD_BOTTOM: f32 = 10.95;
+/// Played cards lie in the left-edge slots like the printed map: Lead at the
+/// bottom, the Surpass / Copy / Pivot column above it, and the action deck and
+/// discard at the top of that edge.
+const CARD_W3: f32 = 1.5;
+const CARD_H3: f32 = 2.1;
+const EDGE_X: f32 = -11.7;
+const LEAD_Z: f32 = 4.6;
+const FOLLOW_Z0: f32 = -2.65;
+const FOLLOW_DZ: f32 = 1.0;
+const DISCARD_Z: f32 = -5.6;
+/// The Court row lies along the top edge, its deck at the left end.
+const COURT_Z: f32 = -11.2;
+
+fn court_x(i: usize, n: usize) -> f32 {
+    (i as f32 - (n as f32 - 1.0) / 2.0) * 2.25 + 1.2
+}
+
+fn track_x(power: i64) -> f32 {
+    TRACK_X0 + (power.clamp(0, TRACK_CELLS as i64 - 1) as f32 + 0.5) * TRACK_CELL
+}
+
+fn lead_pos() -> Vec3 {
+    Vec3::new(EDGE_X, 0.0, LEAD_Z)
+}
+
+/// Where the i-th card after the lead lies (top of the column first).
+fn follow_pos(i: usize) -> Vec3 {
+    Vec3::new(EDGE_X, 0.0, FOLLOW_Z0 + i as f32 * FOLLOW_DZ)
+}
+
+fn project_with(vp: &Mat4, win: [f32; 2], p: Vec3) -> [f32; 2] {
+    let c = *vp * dust_engine::glam::Vec4::new(p.x, p.y, p.z, 1.0);
+    if c.w <= 1e-4 {
+        return [win[0] * 0.5, win[1] * 0.5];
+    }
+    [(c.x / c.w * 0.5 + 0.5) * win[0], (1.0 - (c.y / c.w * 0.5 + 0.5)) * win[1]]
+}
+
+fn discard_pos() -> Vec3 {
+    Vec3::new(EDGE_X, 0.0, DISCARD_Z)
+}
 
 /// Six clusters around a central hub. Each has a gate on the inner ring and
 /// three planets fanning outward: two outer ones either side and a nearer
@@ -168,6 +216,16 @@ struct Ember {
     hex_mesh: usize,
     planet_tex: Vec<(glow::Texture, glow::Texture)>,
     keep_tex: Vec<GpuTexture>,
+    /// Card stock lying on the board: faces of the 28 action cards, the shared
+    /// back, the Court cards, the zero marker and the power track strip.
+    quad_mesh: usize,
+    cyl_mesh: usize,
+    face_tex: Vec<glow::Texture>,
+    back_tex: Option<glow::Texture>,
+    court_tex: Vec<glow::Texture>,
+    zero_tex: Option<glow::Texture>,
+    /// Camera view-projection of the last frame, for placing card flights.
+    vp: Mat4,
     camera: BoardCamera,
     lighting: SceneLighting,
 
@@ -264,6 +322,13 @@ impl Ember {
             hex_mesh: usize::MAX,
             planet_tex: Vec::new(),
             keep_tex: Vec::new(),
+            quad_mesh: 0,
+            cyl_mesh: 0,
+            face_tex: Vec::new(),
+            back_tex: None,
+            court_tex: Vec::new(),
+            zero_tex: None,
+            vp: Mat4::IDENTITY,
             camera: BoardCamera::new(),
             lighting,
             screen: Screen::Menu,
@@ -329,6 +394,13 @@ impl Ember {
                 st = st.apply(st.bot_choose());
                 steps += 1;
             }
+            // --table N: keep playing until N cards lie on the table (screenshots)
+            if let Some(want) = arg_value(&args, "--table").and_then(|v| v.parse::<usize>().ok()) {
+                while st.table().len() < want && !st.is_over() && steps < jump + 400 {
+                    st = st.apply(st.bot_choose());
+                    steps += 1;
+                }
+            }
             me.truth = st.clone();
             me.view = st;
             me.actions_taken = steps;
@@ -348,6 +420,14 @@ impl Ember {
             // `ai` for auto-play. A human seat must be cleared in both.
             me.bots[0] = false;
             me.ai[0] = false;
+        }
+        // Screenshot aid: --look x,z,distance points the camera at a board spot.
+        if let Some(v) = arg_value(&args, "--look") {
+            let f: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+            if f.len() == 3 {
+                me.camera.focus(Vec3::new(f[0], 0.0, f[1]));
+                me.camera.set_distance(f[2]);
+            }
         }
         if let Some(c) = arg_value(&args, "--focus").and_then(|v| v.parse::<usize>().ok()) {
             me.camera.focus(system_pos(c));
@@ -385,6 +465,28 @@ impl Ember {
         Ok(self.meshes.len() - 1)
     }
 
+    /// Uploads a painted canvas with mipmaps, so card text stays clean when
+    /// the camera pulls back.
+    fn upload_canvas(&mut self, gl: &glow::Context, c: &tabletex::Canvas) -> anyhow::Result<glow::Texture> {
+        let t = GpuTexture::from_rgba8(gl, &c.rgba8(), c.w, c.h, TextureFilter::Bilinear)?;
+        unsafe {
+            gl.bind_texture(glow::TEXTURE_2D, Some(t.handle));
+            gl.generate_mipmap(glow::TEXTURE_2D);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR_MIPMAP_LINEAR as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+            gl.bind_texture(glow::TEXTURE_2D, None);
+        }
+        let h = t.handle;
+        self.keep_tex.push(t);
+        Ok(h)
+    }
+
+    /// Screen point (window pixels) of a board point.
+    fn project(&self, p: Vec3) -> [f32; 2] {
+        project_with(&self.vp, self.win, p)
+    }
+
     fn upload_model(&mut self, gl: &glow::Context, m: &models::Model) -> anyhow::Result<Slots> {
         Ok(Slots { team: self.upload(gl, &m.team)?, hull: self.upload(gl, &m.hull)?, glow: self.upload(gl, &m.glow)? })
     }
@@ -409,7 +511,22 @@ impl Ember {
         self.ship = self.upload_model(gl, &models::ship())?;
         self.city = self.upload_model(gl, &models::city())?;
         self.port = self.upload_model(gl, &models::starport())?;
-        let platform = self.upload_model(gl, &models::platform())?;
+        let _platform = self.upload_model(gl, &models::platform())?;
+        self.quad_mesh = self.upload(gl, &tabletex::quad())?;
+        self.cyl_mesh = cyl;
+        self.face_tex.clear();
+        for id in 0..28u8 {
+            let t = self.upload_canvas(gl, &tabletex::action_face(Card(id)))?;
+            self.face_tex.push(t);
+        }
+        self.back_tex = Some(self.upload_canvas(gl, &tabletex::card_back())?);
+        self.court_tex.clear();
+        for id in 0..reach_rules::COURT_CARDS.len() {
+            let t = self.upload_canvas(gl, &tabletex::court_face(id))?;
+            self.court_tex.push(t);
+        }
+        self.zero_tex = Some(self.upload_canvas(gl, &tabletex::zero_marker())?);
+        let track_tex = self.upload_canvas(gl, &tabletex::track_strip(TRACK_CELLS, 64))?;
 
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
         let mut st: Vec<Item> = Vec::new();
@@ -418,7 +535,8 @@ impl Ember {
         let dim_gold = PbrMaterial { emissive: [0.1, 0.08, 0.045], ..PbrMaterial::plastic([0.08, 0.065, 0.03]) };
         let panel = PbrMaterial { roughness: 0.8, emissive: [0.004, 0.012, 0.03], ..PbrMaterial::plastic([0.0; 3]) };
         // board border (no plate: the board floats in space)
-        for (x, z, w, d) in [(0.0, -9.85, 26.2, 0.1), (0.0, 9.85, 26.2, 0.1), (-13.05, 0.0, 0.1, 19.8), (13.05, 0.0, 0.1, 19.8)] {
+        let (mid_z, depth) = ((BOARD_TOP + BOARD_BOTTOM) * 0.5, BOARD_BOTTOM - BOARD_TOP);
+        for (x, z, w, d) in [(0.0, BOARD_TOP, 26.2, 0.1), (0.0, BOARD_BOTTOM, 26.2, 0.1), (-13.05, mid_z, 0.1, depth), (13.05, mid_z, 0.1, depth), (0.0, -9.85, 26.2, 0.04)] {
             st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.0, z), Quat::IDENTITY, Vec3::new(w, 0.06, d)), material: dim_gold, casts: false });
         }
         // wedge floors: three per cluster, tinted by the planet they hold
@@ -471,22 +589,17 @@ impl Ember {
                 prev = p;
             }
         }
-        // power track along the bottom edge: 50 cells
-        for i in 0..51 {
-            let x = -11.5 + i as f32 * 0.46;
-            let major = i % 5 == 0;
-            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, POWER_Z), Quat::IDENTITY, Vec3::new(0.38, 0.02, if major { 0.5 } else { 0.38 })), material: if major { gold } else { dim_gold }, casts: false });
-        }
-        // left edge: deck, surpass/copy/pivot slot, lead slot; top edge: court row
+        // power track along the bottom edge: a numbered strip, 0 to 40
+        let track_len = TRACK_CELLS as f32 * TRACK_CELL;
+        st.push(Item { mesh: cube, model: tr(Vec3::new(TRACK_X0 + track_len * 0.5, 0.015, TRACK_Z), Quat::IDENTITY, Vec3::new(track_len + 0.14, 0.02, TRACK_CELL * 4.0 / 3.0 + 0.14)), material: dim_gold, casts: false });
+        st.push(Item { mesh: self.quad_mesh, model: tr(Vec3::new(TRACK_X0 + track_len * 0.5, 0.03, TRACK_Z), Quat::IDENTITY, Vec3::new(track_len, 1.0, TRACK_CELL * 4.0 / 3.0)), material: PbrMaterial { unlit: true, base_color: [0.95, 0.95, 0.95, 1.0], base_texture: Some(track_tex), ..PbrMaterial::default() }, casts: false });
+        // left edge: action deck and discard, surpass/copy/pivot slot, lead slot
         for (z, d) in [(-5.6, 3.0), (-0.9, 5.6), (4.6, 3.2)] {
             st.push(Item { mesh: cube, model: tr(Vec3::new(-11.7, 0.045, z), Quat::IDENTITY, Vec3::new(2.1, 0.03, d)), material: panel, casts: false });
             st.push(Item { mesh: cube, model: tr(Vec3::new(-11.7, 0.02, z), Quat::IDENTITY, Vec3::new(2.2, 0.01, d + 0.1)), material: dim_gold, casts: false });
         }
-        for k in 0..5 {
-            let x = -4.8 + k as f32 * 2.4;
-            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.045, -9.0), Quat::IDENTITY, Vec3::new(2.0, 0.03, 1.3)), material: panel, casts: false });
-            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, -9.0), Quat::IDENTITY, Vec3::new(2.1, 0.01, 1.4)), material: dim_gold, casts: false });
-        }
+        // top edge: the Court band (card slots are drawn per game, see draw_items)
+        st.push(Item { mesh: cube, model: tr(Vec3::new(0.0, 0.01, COURT_Z), Quat::IDENTITY, Vec3::new(25.8, 0.01, 2.6)), material: PbrMaterial { roughness: 0.9, emissive: [0.006, 0.008, 0.018], ..PbrMaterial::plastic([0.004, 0.005, 0.01]) }, casts: false });
         // right edge: ambition boxes (lit when declared, see draw_items) and chapter track
         for k in 0..5 {
             let z = -6.4 + k as f32 * 2.1;
@@ -691,19 +804,15 @@ impl Ember {
         matches!(self.screen, Screen::Play) && !self.truth.is_over() && !self.bots[self.truth.current()] && !(self.site && (self.awaiting || !self.queue.is_empty()))
     }
 
-    fn follow_target(&self, extra: usize) -> [f32; 2] {
-        let s = &self.card_slots;
-        let n = self.table.follows.len() + self.flies.iter().filter(|f| f.land == cards::Land::Follow).count() + extra;
-        let dx = (n as f32 / 2.0) * s.card_w * 0.82;
-        [s.follow[0] + dx, s.follow[1]]
-    }
-
-    /// Sends a played card from the hand (or a bot's row) to its slot.
-    fn fly_card(&mut self, ev: Ev, dur: f32) {
+    /// Sends a played card from the hand (or a bot's row) to its slot on the
+    /// board's left edge: the Lead slot, or the next place in the Surpass /
+    /// Copy / Pivot column (a seizing card tucks in beside it).
+    fn fly_card(&mut self, ev: Ev, dur: f32, after: &State) {
         let p = ev[1] as usize;
         let human = !self.bots[p];
         let hand_mid = egui::pos2(self.win[0] * 0.5, self.win[1] - 110.0);
         let seize = ev[0] == 5;
+        let copy = ev[0] == 2;
         let card = (!seize).then(|| Card(ev[2] as u8));
         let from = if !human {
             cards::row_of(p)
@@ -716,33 +825,52 @@ impl Ember {
         if lead && (self.table.lead.is_some() || !self.table.follows.is_empty()) {
             self.sweep_table();
         }
-        let to = if lead { self.card_slots.lead } else { self.follow_target(0) };
+        let table = after.table();
+        let idx = table.iter().filter(|e| e.2 != 0).position(|e| e.0 == p).unwrap_or(table.iter().filter(|e| e.2 != 0).count());
+        let at = if lead {
+            lead_pos()
+        } else if seize {
+            follow_pos(idx) + Vec3::new(0.35, 0.0, -0.12)
+        } else {
+            follow_pos(idx)
+        };
+        let to = self.project(at + Vec3::new(0.0, 0.07, 0.0));
+        let face_down = seize || copy;
         self.flies.push(cards::Fly {
-            card,
+            card: if copy { None } else { card },
             from,
             to: egui::pos2(to[0], to[1]),
             t: 0.0,
             dur,
             flip_from: if human && !seize { 0.0 } else { 1.0 },
-            flip_to: if seize { 1.0 } else { 0.0 },
+            flip_to: if face_down { 1.0 } else { 0.0 },
             land: if lead { cards::Land::Lead } else { cards::Land::Follow },
+            owner: p,
         });
     }
 
-    /// The table's cards slide to the discard pile.
+    /// At a round's end the played cards lift off the edge slots and slide
+    /// to the action discard pile.
     fn sweep_table(&mut self) {
-        let s = self.card_slots;
-        let to = egui::pos2(s.discard[0], s.discard[1]);
+        let to = self.project(discard_pos());
+        let to = egui::pos2(to[0], to[1]);
         let mut out = Vec::new();
         if let Some(c) = self.table.lead.take() {
-            out.push((Some(c), s.lead, 0.0));
+            out.push((Some(c), self.project(lead_pos()), 0.0));
         }
-                    let n = self.table.follows.len();
-            for (i, c) in self.table.follows.drain(..).enumerate() {
-                let dx = (i as f32 - (n as f32 - 1.0) / 2.0) * s.card_w * 0.82;
-                let flip = if c.is_some() { 0.0 } else { 1.0 };
-                out.push((c, [s.follow[0] + dx, s.follow[1]], flip));
+        for (i, c) in self.table.follows.drain(..).enumerate() {
+            let flip = if c.is_some() { 0.0 } else { 1.0 };
+            out.push((c, [0.0, 0.0], flip));
+            let _ = i;
+        }
+        let mut k = 0;
+        for (card, at, flip) in out.iter_mut() {
+            if at[0] == 0.0 && at[1] == 0.0 {
+                *at = self.project(follow_pos(k));
+                k += 1;
             }
+            let _ = (card, flip);
+        }
         for (i, (card, at, flip)) in out.into_iter().enumerate() {
             self.flies.push(cards::Fly {
                 card,
@@ -753,6 +881,7 @@ impl Ember {
                 flip_from: flip,
                 flip_to: flip,
                 land: cards::Land::Discard,
+                owner: usize::MAX,
             });
         }
     }
@@ -793,13 +922,9 @@ impl Ember {
                 self.city_rise[ev[2] as usize] = self.clock;
                 dur = 0.5;
             }
-            0..=3 => {
+            0..=3 | 5 if !quick => {
                 dur = if self.cinematic { 0.95 } else { 0.5 };
-                self.fly_card(ev, dur);
-            }
-            5 => {
-                dur = if self.cinematic { 0.95 } else { 0.5 };
-                self.fly_card(ev, dur);
+                self.fly_card(ev, dur, &after);
             }
             20 | 21 => {
                 dur = 0.9;
@@ -819,6 +944,120 @@ impl Ember {
         self.anim = Some(Anim { fx, t: 0.0, dur, after, apply_at_end: at_end });
     }
 
+    /// A card lying flat on the board, its top toward -Z.
+    fn card_item(&self, at: Vec3, tex: Option<glow::Texture>, lift: f32) -> Item {
+        self.card_item_s(at, tex, lift, 1.0)
+    }
+
+    fn card_item_s(&self, at: Vec3, tex: Option<glow::Texture>, lift: f32, k: f32) -> Item {
+        let m = Mat4::from_scale_rotation_translation(Vec3::new(CARD_W3 * k, 1.0, CARD_H3 * k), Quat::IDENTITY, at + Vec3::new(0.0, 0.07 + lift, 0.0));
+        Item { mesh: self.quad_mesh, model: m, material: PbrMaterial { unlit: true, base_color: [0.92, 0.92, 0.92, 1.0], base_texture: tex, ..PbrMaterial::default() }, casts: false }
+    }
+
+    /// A thin plinth under a card so it reads as card stock, not paint.
+    fn card_plinth(&self, at: Vec3, lift: f32, edge: [f32; 3]) -> Item {
+        self.card_plinth_s(at, lift, edge, 1.0)
+    }
+
+    fn card_plinth_s(&self, at: Vec3, lift: f32, edge: [f32; 3], k: f32) -> Item {
+        let m = Mat4::from_scale_rotation_translation(Vec3::new(CARD_W3 * k + 0.04, 0.02, CARD_H3 * k + 0.04), Quat::IDENTITY, at + Vec3::new(0.0, 0.055 + lift, 0.0));
+        Item { mesh: self.bar_mesh, model: m, material: PbrMaterial { emissive: edge, ..PbrMaterial::plastic([0.02; 3]) }, casts: false }
+    }
+
+    /// The round's played cards in the left-edge slots: the lead card (with
+    /// the zero marker once an ambition is declared) and every Surpass, Copy
+    /// or Pivot card in turn order, each tagged with its player's colour.
+    /// A card still flying in from a hand is not drawn until it lands.
+    fn table_items(&self, s: &State, out: &mut Vec<Item>) {
+        let tr = |p: Vec3, r: Quat, sc: Vec3| Mat4::from_scale_rotation_translation(sc, r, p);
+        let in_flight = |p: usize| self.flies.iter().any(|f| f.owner == p && f.land != cards::Land::Discard);
+        let tag = |at: Vec3, p: usize, lift: f32, out: &mut Vec<Item>| {
+            let col = lin(ui::COLORS_UI[p]);
+            out.push(Item { mesh: self.cyl_mesh, model: tr(at + Vec3::new(CARD_W3 * 0.5 + 0.28, 0.08 + lift, -CARD_H3 * 0.5 + 0.3), Quat::IDENTITY, Vec3::new(0.32, 0.05, 0.32)), material: PbrMaterial { roughness: 0.4, emissive: col.map(|v| v * 0.6), ..PbrMaterial::plastic(col) }, casts: false });
+        };
+        // the action deck and discard: a face-down stack
+        let back = self.back_tex;
+        for k in 0..4 {
+            out.push(self.card_plinth(discard_pos(), k as f32 * 0.025, [0.05, 0.04, 0.02]));
+        }
+        out.push(self.card_item(discard_pos(), back, 0.1));
+        let mut follow_i = 0;
+        for (p, card, mode, seize) in s.table() {
+            if in_flight(p) {
+                if mode != 0 {
+                    follow_i += 1;
+                }
+                continue;
+            }
+            let face = if mode == 2 { back } else { self.face_tex.get(card.0 as usize).copied() };
+            if mode == 0 {
+                let at = lead_pos();
+                out.push(self.card_plinth(at, 0.0, lin(ui::COLORS_UI[p]).map(|v| v * 0.5)));
+                out.push(self.card_item(at, face, 0.0));
+                tag(at, p, 0.0, out);
+                if s.lead_number() == 0 && s.lead_suit().is_some() {
+                    // the zero marker covers the card number (top-left medallion)
+                    let m = at + Vec3::new(-CARD_W3 * 0.29, 0.1, -CARD_H3 * 0.153);
+                    out.push(Item { mesh: self.quad_mesh, model: tr(m, Quat::IDENTITY, Vec3::splat(0.6)), material: PbrMaterial { unlit: true, base_texture: self.zero_tex, ..PbrMaterial::default() }, casts: false });
+                }
+            } else {
+                let at = follow_pos(follow_i);
+                let lift = follow_i as f32 * 0.012;
+                if seize.is_some() {
+                    // the seizing card lies face down, tucked under and offset
+                    let sat = at + Vec3::new(0.35, 0.0, -0.12);
+                    out.push(self.card_plinth(sat, lift - 0.008, [0.06, 0.045, 0.02]));
+                    out.push(self.card_item(sat, back, lift - 0.006));
+                }
+                out.push(self.card_plinth(at, lift, lin(ui::COLORS_UI[p]).map(|v| v * 0.5)));
+                out.push(self.card_item(at, face, lift));
+                tag(at, p, lift, out);
+                follow_i += 1;
+            }
+        }
+    }
+
+    /// The Court row along the top edge: deck, face-up cards and the agents
+    /// players have placed on each.
+    fn court_items(&self, s: &State, out: &mut Vec<Item>) {
+        const CK: f32 = 1.12;
+        let tr = |p: Vec3, r: Quat, sc: Vec3| Mat4::from_scale_rotation_translation(sc, r, p);
+        let n = s.court_slots();
+        let panel = PbrMaterial { roughness: 0.8, emissive: [0.004, 0.012, 0.03], ..PbrMaterial::plastic([0.0; 3]) };
+        let dim_gold = PbrMaterial { emissive: [0.1, 0.08, 0.045], ..PbrMaterial::plastic([0.08, 0.065, 0.03]) };
+        let deck_at = Vec3::new(court_x(0, n) - 2.6, 0.0, COURT_Z);
+        for k in 0..s.court_deck().min(6) {
+            out.push(self.card_plinth_s(deck_at, k as f32 * 0.025, [0.05, 0.04, 0.02], CK));
+        }
+        if s.court_deck() > 0 {
+            out.push(self.card_item_s(deck_at, self.back_tex, s.court_deck().min(6) as f32 * 0.025, CK));
+        }
+        for i in 0..n {
+            let at = Vec3::new(court_x(i, n), 0.0, COURT_Z);
+            out.push(Item { mesh: self.bar_mesh, model: tr(at + Vec3::new(0.0, 0.02, 0.0), Quat::IDENTITY, Vec3::new(CARD_W3 * CK + 0.3, 0.01, CARD_H3 * CK + 0.3)), material: dim_gold, casts: false });
+            out.push(Item { mesh: self.bar_mesh, model: tr(at + Vec3::new(0.0, 0.03, 0.0), Quat::IDENTITY, Vec3::new(CARD_W3 * CK + 0.2, 0.01, CARD_H3 * CK + 0.2)), material: panel, casts: false });
+            let Some(card) = s.court_card(i) else { continue };
+            out.push(self.card_plinth_s(at, 0.0, [0.08, 0.06, 0.03], CK));
+            out.push(self.card_item_s(at, self.court_tex.get(card.0 as usize).copied(), 0.0, CK));
+            // agents: a stack of pawns per player along the card's foot, so
+            // the name and effect stay readable
+            let players = s.players();
+            for p in 0..players {
+                let cnt = s.agents_on(i, p) as usize;
+                if cnt == 0 {
+                    continue;
+                }
+                let col = lin(ui::COLORS_UI[p]);
+                let mat = PbrMaterial { roughness: 0.4, metallic: 0.2, emissive: col.map(|v| v * 0.25), ..PbrMaterial::plastic(col) };
+                let base = at + Vec3::new((p as f32 - (players as f32 - 1.0) / 2.0) * 0.38, 0.08, CARD_H3 * CK * 0.5 - 0.2);
+                for k in 0..cnt {
+                    out.push(Item { mesh: self.cyl_mesh, model: tr(base + Vec3::new(0.0, 0.03 + k as f32 * 0.065, 0.0), Quat::IDENTITY, Vec3::new(0.26, 0.055, 0.26)), material: mat, casts: true });
+                }
+                out.push(Item { mesh: self.sphere_mesh, model: tr(base + Vec3::new(0.0, 0.06 + cnt as f32 * 0.065, 0.0), Quat::IDENTITY, Vec3::splat(0.08)), material: mat, casts: true });
+            }
+        }
+    }
+
     fn draw_items(&self) -> Vec<Item> {
         let mut out: Vec<Item> = Vec::new();
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
@@ -835,19 +1074,22 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [1.0, 0.65, 0.3], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
-        // Power tokens along the bottom track: one lane per seat. A small
-        // along-track stagger keeps equal scores readable as three pieces
-        // instead of one stack at the start of the track.
+        // Power markers on the bottom-edge track. Players on the same score
+        // stack, like the printed markers.
         for p in 0..n {
-            let pw = (s.power(p).max(0) as f32).min(50.0);
-            let x = -11.5 + pw * 0.46 + p as f32 * 0.24;
+            let pw = s.power(p);
+            let below = (0..p).filter(|&q| s.power(q).clamp(0, 40) == pw.clamp(0, 40)).count() as f32;
+            let x = track_x(pw);
             let col = lin(ui::COLORS_UI[p]);
-            // Stand the pieces on the near side of the line, not behind it:
-            // the gold cells would otherwise hide low-power pieces.
-            let z = POWER_Z + 0.34 + p as f32 * 0.20;
-            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.10, z), Quat::IDENTITY, Vec3::new(0.27, 0.18, 0.27)), material: PbrMaterial { roughness: 0.8, metallic: 0.1, emissive: col.map(|v| v * 0.18), ..PbrMaterial::plastic(lin([28, 26, 24])) }, casts: false });
-            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.18, z), Quat::IDENTITY, Vec3::new(0.18, 0.18, 0.18)), material: PbrMaterial { roughness: 0.3, metallic: 0.5, emissive: col.map(|v| v * 0.7), ..PbrMaterial::plastic(col) }, casts: false });
+            let y = 0.05 + below * 0.13;
+            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, y + 0.06, TRACK_Z), Quat::IDENTITY, Vec3::new(0.25, 0.12, 0.25)), material: PbrMaterial { roughness: 0.35, metallic: 0.4, emissive: col.map(|v| v * 0.55), ..PbrMaterial::plastic(col) }, casts: true });
         }
+        // the power goal: a brass pin standing in its cell
+        let goal_x = track_x(State::power_goal(n));
+        out.push(Item { mesh: self.cyl_mesh, model: tr(Vec3::new(goal_x, 0.3, TRACK_Z - TRACK_CELL * 0.62), Quat::IDENTITY, Vec3::new(0.06, 0.6, 0.06)), material: PbrMaterial { emissive: [1.2, 0.8, 0.35], ..PbrMaterial::plastic([0.4, 0.3, 0.1]) }, casts: false });
+        out.push(Item { mesh: self.sphere_mesh, model: tr(Vec3::new(goal_x, 0.62, TRACK_Z - TRACK_CELL * 0.62), Quat::IDENTITY, Vec3::splat(0.11)), material: PbrMaterial { emissive: [1.6, 1.05, 0.45], ..PbrMaterial::plastic([0.4, 0.3, 0.1]) }, casts: false });
+        self.table_items(s, &mut out);
+        self.court_items(s, &mut out);
         // ambition boxes light up with their declaration rank
         let ranks = s.ambition_ranks();
         for k in 0..5 {
@@ -1283,24 +1525,19 @@ impl Game for Ember {
         let (ww3, wh3) = ctx.platform.window.size();
         self.win = [ww3 as f32, wh3 as f32];
         {
-            let vp = self.camera.view_proj(aspect);
-            let pt = |x: f32, z: f32| {
-                let c = vp * dust_engine::glam::Vec4::new(x, 0.05, z, 1.0);
-                [(c.x / c.w * 0.5 + 0.5) * ww3 as f32, (1.0 - (c.y / c.w * 0.5 + 0.5)) * wh3 as f32]
-            };
-            // Played cards are a horizontal row above the action strip. Keeping
-            // them off the map's left edge stops a second card from sliding
-            // under the status bar on a tall, narrow window.
-            let w = if self.win[0] < 620.0 { 62.0 } else { 84.0 };
-            let card_h = w * 136.0 / 96.0;
-            let y = (self.win[1] - 360.0 - card_h * 0.5).max(40.0 + card_h * 0.5);
-            let lead_x = self.win[0] * 0.5 - w * 1.6;
-            let follow_x = lead_x + w * 1.2;
+            // Card flights end on the board's edge slots: project them, and
+            // the on-screen width of a card lying in the Lead slot.
+            self.vp = self.camera.view_proj(aspect);
+            let (vp, win) = (self.vp, self.win);
+            let pr = |p: Vec3| project_with(&vp, win, p);
+            let lead = pr(lead_pos() + Vec3::new(0.0, 0.07, 0.0));
+            let l = pr(lead_pos() + Vec3::new(-CARD_W3 * 0.5, 0.07, 0.0));
+            let r = pr(lead_pos() + Vec3::new(CARD_W3 * 0.5, 0.07, 0.0));
             self.card_slots = cards::Slots {
-                lead: [lead_x, y],
-                follow: [follow_x, y],
-                discard: [follow_x + w * 2.3, y],
-                card_w: w,
+                lead,
+                follow: pr(follow_pos(0)),
+                discard: pr(discard_pos()),
+                card_w: (r[0] - l[0]).abs().max(8.0),
             };
         }
         let anchors = {
@@ -1313,10 +1550,10 @@ impl Game for Ember {
             guides::Anchors {
                 ring: pt(0.0, 0.0),
                 gates: pt(gate.x, gate.z),
-                court: pt(0.0, -9.0),
+                court: pt(court_x(0, self.view.court_slots()), COURT_Z),
                 ambitions: pt(11.3, 0.0),
-                power: pt(0.0, POWER_Z),
-                played: [self.card_slots.follow[0], self.card_slots.follow[1]],
+                power: pt(0.0, TRACK_Z),
+                played: self.card_slots.lead,
             }
         };
         let (table, flies, card_slots) = (self.table.clone(), self.flies.clone(), self.card_slots);

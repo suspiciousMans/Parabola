@@ -4769,6 +4769,21 @@ pub fn h_acted() -> i64 {
     return 18i64;
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_taxed() -> i64 {
+    __ox_stack_check();
+    return 13i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_ported() -> i64 {
+    __ox_stack_check();
+    return 19i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_lead_num() -> i64 {
+    __ox_stack_check();
+    return 28i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_lore_used() -> i64 {
     __ox_stack_check();
     return 21i64;
@@ -4829,9 +4844,59 @@ pub fn supply_base() -> i64 {
     return 456i64;
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn state_len() -> i64 {
+pub fn h_passes() -> i64 {
     __ox_stack_check();
     return 461i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_deck() -> i64 {
+    __ox_stack_check();
+    return 462i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_flips() -> i64 {
+    __ox_stack_check();
+    return 463i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_mk_taken() -> i64 {
+    __ox_stack_check();
+    return 464i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_x_secure() -> i64 {
+    __ox_stack_check();
+    return 465i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_amb_first() -> i64 {
+    __ox_stack_check();
+    return 466i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_amb_second() -> i64 {
+    __ox_stack_check();
+    return 471i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn agents_base() -> i64 {
+    __ox_stack_check();
+    return 476i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn cap_base() -> i64 {
+    __ox_stack_check();
+    return 492i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn state_len() -> i64 {
+    __ox_stack_check();
+    return 508i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn n_agents() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(10);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn pb(p: DynamicValue) -> DynamicValue {
@@ -4894,14 +4959,86 @@ pub fn lore(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     return __ox_idx(&s, pb(p) + DynamicValue::Int(17)).into_owned();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn play_mode(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, pb(p) + DynamicValue::Int(18)).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn seize_card(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, pb(p) + DynamicValue::Int(19)).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn lore_cap() -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(3);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn has_court(s: DynamicValue, p: DynamicValue, c: DynamicValue) -> DynamicValue {
+pub fn n_court() -> DynamicValue {
     __ox_stack_check();
-    return has_card(secured(s, p), c);
+    return DynamicValue::Int(10);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_icon(c: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(2), DynamicValue::Int(3), DynamicValue::Int(4), DynamicValue::Int(1), DynamicValue::Int(1), DynamicValue::Int(3), DynamicValue::Int(0), DynamicValue::Int(2), DynamicValue::Int(4)]).index_any(c);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn has_court(s: DynamicValue, p: DynamicValue, e: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let m = secured(s, p);
+    return DynamicValue::Bool((has_card(m.clone(), e.clone())).is_truthy() || (has_card(m.clone(), e.clone() + DynamicValue::Int(5))).is_truthy());
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_icons(s: DynamicValue, p: DynamicValue, ty: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut n = DynamicValue::Int(0);
+    for c in (range(DynamicValue::Int(0), n_court())).into_list() {
+        if (has_card(secured(s.clone(), p.clone()), c.clone())).is_truthy() && (court_icon(c.clone()) == ty.clone()) {
+            {
+                let __ox_rhs = DynamicValue::Int(1);
+                if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut n, &__ox_rhs) {
+                    __ox_a.push_str(__ox_b);
+                } else {
+                    let __ox_l = std::mem::replace(&mut n, DynamicValue::None);
+                    n = __ox_l + __ox_rhs;
+                }
+            }
+            } else {
+            }
+    }
+    return n.clone();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn row_size(s: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    if nplayers(s) == DynamicValue::Int(2) {
+        return DynamicValue::Int(3);
+        } else {
+        }
+    return DynamicValue::Int(4);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn agents_on(s: DynamicValue, i: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, (DynamicValue::Int(agents_base() as i64) + (i * DynamicValue::Int(4))) + p).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn cap_of(s: DynamicValue, h: DynamicValue, o: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, (DynamicValue::Int(cap_base() as i64) + (h * DynamicValue::Int(4))) + o).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn agents_left(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut n = n_agents();
+    for i in (range(DynamicValue::Int(0), DynamicValue::Int(4))).into_list() {
+        n = n - agents_on(s.clone(), i.clone(), p.clone());
+    }
+    for h in (range(DynamicValue::Int(0), nplayers(s.clone()))).into_list() {
+        n = n - cap_of(s.clone(), h.clone(), p.clone());
+    }
+    return n.clone();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn court_envoy() -> DynamicValue {
@@ -4952,16 +5089,6 @@ pub fn outraged(s: DynamicValue, p: DynamicValue, t: DynamicValue) -> DynamicVal
 pub fn court(s: DynamicValue, i: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, h_court() + i).into_owned();
-}
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn court_value(c: DynamicValue) -> DynamicValue {
-    __ox_stack_check();
-    return DynamicValue::Int(1);
-}
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn court_cost() -> DynamicValue {
-    __ox_stack_check();
-    return DynamicValue::Int(1);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn supply(s: DynamicValue, t: DynamicValue) -> DynamicValue {
@@ -5388,10 +5515,15 @@ pub fn new_game(n: DynamicValue, seed: DynamicValue, setup_idx: DynamicValue) ->
     }
     for i in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
         {
-            let __ox_tmp = i.clone();
+            let __ox_tmp = -DynamicValue::Int(1);
             let __ox_ix0 = h_court() + i.clone();
             *__ox_index_mut(&mut s, __ox_ix0) = __ox_tmp;
         }
+    }
+    {
+        let __ox_tmp = pow2(n_court()) - DynamicValue::Int(1);
+        let __ox_ix0 = DynamicValue::Int(h_deck() as i64);
+        *__ox_index_mut(&mut s, __ox_ix0) = __ox_tmp;
     }
     for t in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
         {
@@ -5507,7 +5639,50 @@ pub fn new_game(n: DynamicValue, seed: DynamicValue, setup_idx: DynamicValue) ->
     }
     s = deal_leaders(s);
     s = shuffle_init(s);
+    for i in (range(DynamicValue::Int(0), row_size(s.clone()))).into_list() {
+        s = refill_court(s, i.clone());
+    }
     return deal_chapter(s.clone());
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn refill_court(s: DynamicValue, i: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut t = s;
+    {
+        let __ox_tmp = -DynamicValue::Int(1);
+        let __ox_ix0 = h_court() + i.clone();
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    let mut left = DynamicValue::list(vec![]);
+    for c in (range(DynamicValue::Int(0), n_court())).into_list() {
+        if (has_card(__ox_idx(&t, DynamicValue::Int(h_deck() as i64)).into_owned(), c.clone())).is_truthy() {
+            {
+                let __ox_item = c.clone();
+                match &mut left {
+                    DynamicValue::List(items) => items.push(__ox_item),
+                    other => panic!("type error: push() expects a List, got {:?}", other),
+                }
+            }
+            } else {
+            }
+    }
+    if __ox_len(&left) == DynamicValue::Int(0) {
+        return t.clone();
+        } else {
+        }
+    t = draw(t);
+    let c = __ox_idx(&left, rng_val(__ox_idx(&t, DynamicValue::Int(h_rng() as i64)).into_owned()) % __ox_len(&left)).into_owned();
+    {
+        let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_deck() as i64)).into_owned() - pow2(c.clone());
+        let __ox_ix0 = DynamicValue::Int(h_deck() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = c.clone();
+        let __ox_ix0 = h_court() + i.clone();
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    return t.clone();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn deal_leaders(s: DynamicValue) -> DynamicValue {
@@ -5690,6 +5865,11 @@ pub fn start_round(s: DynamicValue) -> DynamicValue {
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_lead_num() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
         let __ox_tmp = -DynamicValue::Int(1);
         let __ox_ix0 = DynamicValue::Int(h_seized() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
@@ -5697,6 +5877,11 @@ pub fn start_round(s: DynamicValue) -> DynamicValue {
     {
         let __ox_tmp = DynamicValue::Int(0);
         let __ox_ix0 = DynamicValue::Int(h_turns() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     {
@@ -5728,6 +5913,18 @@ pub fn start_round(s: DynamicValue) -> DynamicValue {
         let __ox_tmp = DynamicValue::Int(0);
         let __ox_ix0 = DynamicValue::Int(h_acted() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+        {
+            let __ox_tmp = -DynamicValue::Int(1);
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(18);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = -DynamicValue::Int(1);
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(19);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
     }
     return t.clone();
 }
@@ -5764,51 +5961,68 @@ pub fn ambition_options(s: DynamicValue, num: DynamicValue) -> DynamicValue {
         } else {
         }
     if (num.clone() >= DynamicValue::Int(2)) && (num.clone() <= DynamicValue::Int(6)) {
-        if !((amb_declared(s.clone(), num.clone() - DynamicValue::Int(2))).is_truthy()) {
+        {
+            let __ox_item = num.clone() - DynamicValue::Int(2);
+            match &mut out {
+                DynamicValue::List(items) => items.push(__ox_item),
+                other => panic!("type error: push() expects a List, got {:?}", other),
+            }
+        }
+        } else {
+        }
+    if num.clone() == DynamicValue::Int(7) {
+        for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
             {
-                let __ox_item = num.clone() - DynamicValue::Int(2);
+                let __ox_item = a.clone();
                 match &mut out {
                     DynamicValue::List(items) => items.push(__ox_item),
                     other => panic!("type error: push() expects a List, got {:?}", other),
                 }
             }
-            } else {
-            }
-        } else {
-        }
-    if num.clone() == DynamicValue::Int(7) {
-        for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
-            if !((amb_declared(s.clone(), a.clone())).is_truthy()) {
-                {
-                    let __ox_item = a.clone();
-                    match &mut out {
-                        DynamicValue::List(items) => items.push(__ox_item),
-                        other => panic!("type error: push() expects a List, got {:?}", other),
-                    }
-                }
-                } else {
-                }
         }
         } else {
         }
     return out.clone();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn marker_pair(s: DynamicValue, i: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    if i.clone() < __ox_idx(&s, DynamicValue::Int(h_flips() as i64)).into_owned() {
+        return DynamicValue::list(vec![DynamicValue::list(vec![DynamicValue::Int(4), DynamicValue::Int(2)]), DynamicValue::list(vec![DynamicValue::Int(6), DynamicValue::Int(3)]), DynamicValue::list(vec![DynamicValue::Int(9), DynamicValue::Int(4)])]).index_any(i.clone());
+        } else {
+        }
+    return DynamicValue::list(vec![DynamicValue::list(vec![DynamicValue::Int(2), DynamicValue::Int(0)]), DynamicValue::list(vec![DynamicValue::Int(3), DynamicValue::Int(2)]), DynamicValue::list(vec![DynamicValue::Int(5), DynamicValue::Int(3)])]).index_any(i.clone());
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn best_marker(s: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut best = -DynamicValue::Int(1);
+    let mut bv = -DynamicValue::Int(1);
+    for i in (range(DynamicValue::Int(0), DynamicValue::Int(3))).into_list() {
+        if !((has_card(__ox_idx(&s, DynamicValue::Int(h_mk_taken() as i64)).into_owned(), i.clone())).is_truthy()) && (marker_pair(s.clone(), i.clone()).index(0i64) > bv.clone()) {
+            bv = marker_pair(s.clone(), i.clone()).index(0i64);
+            best = i.clone();
+            } else {
+            }
+    }
+    return best;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn suit_allows(suit: DynamicValue, kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if suit.clone() == DynamicValue::Int(0) {
-        return DynamicValue::Bool((kind.clone() == DynamicValue::Int(8)) || (kind.clone() == DynamicValue::Int(13)));
+        return DynamicValue::Bool(((kind.clone() == DynamicValue::Int(8)) || (kind.clone() == DynamicValue::Int(13))) || (kind.clone() == DynamicValue::Int(17)));
         } else {
         }
     if suit.clone() == DynamicValue::Int(1) {
-        return DynamicValue::Bool((kind.clone() == DynamicValue::Int(14)) || (kind.clone() == DynamicValue::Int(12)));
+        return DynamicValue::Bool(((kind.clone() == DynamicValue::Int(14)) || (kind.clone() == DynamicValue::Int(12))) || (kind.clone() == DynamicValue::Int(15)));
         } else {
         }
     if suit.clone() == DynamicValue::Int(2) {
         return DynamicValue::Bool((((kind.clone() == DynamicValue::Int(9)) || (kind.clone() == DynamicValue::Int(10))) || (kind.clone() == DynamicValue::Int(11))) || (kind.clone() == DynamicValue::Int(13)));
         } else {
         }
-    return DynamicValue::Bool(kind.clone() == DynamicValue::Int(12));
+    return DynamicValue::Bool((kind.clone() == DynamicValue::Int(12)) || (kind.clone() == DynamicValue::Int(17)));
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn kind_group(kind: DynamicValue) -> DynamicValue {
@@ -5825,12 +6039,20 @@ pub fn kind_group(kind: DynamicValue) -> DynamicValue {
         return DynamicValue::Int(2);
         } else {
         }
+    if kind.clone() == DynamicValue::Int(15) {
+        return DynamicValue::Int(4);
+        } else {
+        }
     return DynamicValue::Int(3);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn source_for(s: DynamicValue, kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if (acts(s.clone()) > DynamicValue::Int(0)) && (suit_allows(__ox_idx(&s, DynamicValue::Int(h_act_suit() as i64)).into_owned(), kind.clone())).is_truthy() {
+        return DynamicValue::Int(1);
+        } else {
+        }
+    if ((kind.clone() == DynamicValue::Int(14)) && (acts(s.clone()) > DynamicValue::Int(0))) && (__ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned() > DynamicValue::Int(0)) {
         return DynamicValue::Int(1);
         } else {
         }
@@ -5843,7 +6065,7 @@ pub fn source_for(s: DynamicValue, kind: DynamicValue) -> DynamicValue {
         return DynamicValue::Int(2);
         } else {
         }
-    if (g.clone() == DynamicValue::Int(2)) && (__ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned() > DynamicValue::Int(0)) {
+    if (g.clone() == DynamicValue::Int(4)) && (__ox_idx(&s, DynamicValue::Int(h_x_secure() as i64)).into_owned() > DynamicValue::Int(0)) {
         return DynamicValue::Int(2);
         } else {
         }
@@ -5852,6 +6074,11 @@ pub fn source_for(s: DynamicValue, kind: DynamicValue) -> DynamicValue {
         } else {
         }
     return DynamicValue::Int(0);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn extras_left(s: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return ((__ox_idx(&s, DynamicValue::Int(h_x_build() as i64)).into_owned() + __ox_idx(&s, DynamicValue::Int(h_x_move() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_lead() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_secure() as i64)).into_owned();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn can_spend(s: DynamicValue, p: DynamicValue, t: DynamicValue) -> DynamicValue {
@@ -5889,7 +6116,7 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
                 let cards = cards_in_hand(s.clone(), p.clone());
                 for c in (cards.clone()).into_list() {
                     if card_suit(c.clone()) == ls.clone() {
-                        if card_num(c.clone()) > __ox_idx(&s, DynamicValue::Int(h_best_num() as i64)).into_owned() {
+                        if card_num(c.clone()) > __ox_idx(&s, DynamicValue::Int(h_lead_num() as i64)).into_owned() {
                             {
                                 let __ox_item = DynamicValue::list(vec![DynamicValue::Int(1), c.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
                                 match &mut out {
@@ -5916,7 +6143,7 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
                         }
                     }
                 }
-                if (__ox_idx(&s, DynamicValue::Int(h_seized() as i64)).into_owned() == -DynamicValue::Int(1)) && (__ox_len(&cards) >= DynamicValue::Int(2)) {
+                if ((__ox_idx(&s, DynamicValue::Int(h_seized() as i64)).into_owned() == -DynamicValue::Int(1)) && (p.clone() != __ox_idx(&s, DynamicValue::Int(h_init() as i64)).into_owned())) && (__ox_len(&cards) >= DynamicValue::Int(2)) {
                     for c in (cards.clone()).into_list() {
                         {
                             let __ox_item = DynamicValue::list(vec![DynamicValue::Int(5), c.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
@@ -5928,17 +6155,10 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
                     }
                     } else {
                     }
-                {
-                    let __ox_item = DynamicValue::list(vec![DynamicValue::Int(4), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0)]);
-                    match &mut out {
-                        DynamicValue::List(items) => items.push(__ox_item),
-                        other => panic!("type error: push() expects a List, got {:?}", other),
-                    }
-                }
                 } else {
                     if ph.clone() == DynamicValue::Int(2) {
                         if __ox_idx(&s, DynamicValue::Int(h_acted() as i64)).into_owned() == DynamicValue::Int(0) {
-                            for t in (DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(4)])).into_list() {
+                            for t in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
                                 if (can_spend(s.clone(), p.clone(), t.clone())).is_truthy() {
                                     {
                                         let __ox_item = DynamicValue::list(vec![DynamicValue::Int(6), t.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
@@ -5952,31 +6172,6 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
                             }
                             } else {
                             }
-                        for i in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
-                            if court(s.clone(), i.clone()) >= DynamicValue::Int(0) {
-                                if (court_pay_ok(s.clone(), p.clone(), DynamicValue::Int(3))).is_truthy() {
-                                    {
-                                        let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
-                                        match &mut out {
-                                            DynamicValue::List(items) => items.push(__ox_item),
-                                            other => panic!("type error: push() expects a List, got {:?}", other),
-                                        }
-                                    }
-                                    } else {
-                                    }
-                                if (court_pay_ok(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy() {
-                                    {
-                                        let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(4), DynamicValue::Int(0)]);
-                                        match &mut out {
-                                            DynamicValue::List(items) => items.push(__ox_item),
-                                            other => panic!("type error: push() expects a List, got {:?}", other),
-                                        }
-                                    }
-                                    } else {
-                                    }
-                                } else {
-                                }
-                        }
                         if (lore(s.clone(), p.clone()) > DynamicValue::Int(0)) && (__ox_idx(&s, DynamicValue::Int(h_lore_used() as i64)).into_owned() == DynamicValue::Int(0)) {
                             {
                                 let __ox_item = DynamicValue::list(vec![DynamicValue::Int(16), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0)]);
@@ -6017,28 +6212,55 @@ pub fn action_list(s: DynamicValue) -> DynamicValue {
     let n = nplayers(s.clone());
     if source_for(s.clone(), DynamicValue::Int(8)) > DynamicValue::Int(0) {
         for sys in (range(DynamicValue::Int(0), DynamicValue::Int(n_sys() as i64))).into_list() {
-            if !((is_gate(sys.clone())).is_truthy()) && (supply(s.clone(), planet_type(sys.clone())) > DynamicValue::Int(0)) {
-                let mut mine = DynamicValue::Bool(false);
+            if (in_play(s.clone(), sys.clone())).is_truthy() && !((is_gate(sys.clone())).is_truthy()) {
                 for sl in (range(DynamicValue::Int(0), DynamicValue::Int(2))).into_list() {
-                    if (slot_kind(s.clone(), sys.clone(), sl.clone()) == DynamicValue::Int(1)) && (slot_owner(s.clone(), sys.clone(), sl.clone()) == p.clone()) {
-                        mine = DynamicValue::Bool(true);
-                        } else {
-                        }
-                    if ((slot_kind(s.clone(), sys.clone(), sl.clone()) == DynamicValue::Int(1)) && (slot_owner(s.clone(), sys.clone(), sl.clone()) != p.clone())) && (controller(s.clone(), sys.clone()) == p.clone()) {
-                        mine = DynamicValue::Bool(true);
+                    if (slot_kind(s.clone(), sys.clone(), sl.clone()) == DynamicValue::Int(1)) && !((has_card(__ox_idx(&s, DynamicValue::Int(h_taxed() as i64)).into_owned(), (sys.clone() * DynamicValue::Int(2)) + sl.clone())).is_truthy()) {
+                        let o = slot_owner(s.clone(), sys.clone(), sl.clone());
+                        let rival_ok = DynamicValue::Bool((o.clone() != p.clone()) && (controller(s.clone(), sys.clone()) == p.clone()));
+                        let gains = DynamicValue::Bool(supply(s.clone(), planet_type(sys.clone())) > DynamicValue::Int(0));
+                        if ((o.clone() == p.clone()) && (gains.clone()).is_truthy()) || ((rival_ok.clone()).is_truthy() && ((gains.clone()).is_truthy() || (agents_left(s.clone(), o.clone()) > DynamicValue::Int(0)))) {
+                            {
+                                let __ox_item = DynamicValue::list(vec![DynamicValue::Int(8), sys.clone(), sl.clone(), DynamicValue::Int(0)]);
+                                match &mut out {
+                                    DynamicValue::List(items) => items.push(__ox_item),
+                                    other => panic!("type error: push() expects a List, got {:?}", other),
+                                }
+                            }
+                            } else {
+                            }
                         } else {
                         }
                 }
-                if (mine.clone()).is_truthy() {
-                    {
-                        let __ox_item = DynamicValue::list(vec![DynamicValue::Int(8), sys.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
-                        match &mut out {
-                            DynamicValue::List(items) => items.push(__ox_item),
-                            other => panic!("type error: push() expects a List, got {:?}", other),
-                        }
+                } else {
+                }
+        }
+        } else {
+        }
+    if (source_for(s.clone(), DynamicValue::Int(17)) > DynamicValue::Int(0)) && (agents_left(s.clone(), p.clone()) > DynamicValue::Int(0)) {
+        for i in (range(DynamicValue::Int(0), row_size(s.clone()))).into_list() {
+            if court(s.clone(), i.clone()) >= DynamicValue::Int(0) {
+                {
+                    let __ox_item = DynamicValue::list(vec![DynamicValue::Int(17), i.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
+                    match &mut out {
+                        DynamicValue::List(items) => items.push(__ox_item),
+                        other => panic!("type error: push() expects a List, got {:?}", other),
                     }
-                    } else {
+                }
+                } else {
+                }
+        }
+        } else {
+        }
+    if source_for(s.clone(), DynamicValue::Int(15)) > DynamicValue::Int(0) {
+        for i in (range(DynamicValue::Int(0), row_size(s.clone()))).into_list() {
+            if (court(s.clone(), i.clone()) >= DynamicValue::Int(0)) && (can_secure(s.clone(), i.clone(), p.clone())).is_truthy() {
+                {
+                    let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
+                    match &mut out {
+                        DynamicValue::List(items) => items.push(__ox_item),
+                        other => panic!("type error: push() expects a List, got {:?}", other),
                     }
+                }
                 } else {
                 }
         }
@@ -6074,7 +6296,7 @@ pub fn action_list(s: DynamicValue) -> DynamicValue {
                     }
                 } else {
                 }
-            if (count_kind(s.clone(), sys.clone(), p.clone(), DynamicValue::Int(2), DynamicValue::Int(0)) > DynamicValue::Int(0)) && (reserve(s.clone(), p.clone()) > DynamicValue::Int(0)) {
+            if (ports_ready(s.clone(), sys.clone(), p.clone()) > DynamicValue::Int(0)) && (reserve(s.clone(), p.clone()) > DynamicValue::Int(0)) {
                 {
                     let __ox_item = DynamicValue::list(vec![DynamicValue::Int(11), sys.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
                     match &mut out {
@@ -6159,6 +6381,34 @@ pub fn action_list(s: DynamicValue) -> DynamicValue {
         } else {
         }
     return out.clone();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn can_secure(s: DynamicValue, i: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mine = agents_on(s.clone(), i.clone(), p.clone());
+    if mine.clone() == DynamicValue::Int(0) {
+        return DynamicValue::Bool(false);
+        } else {
+        }
+    for e in (range(DynamicValue::Int(0), nplayers(s.clone()))).into_list() {
+        if (e.clone() != p.clone()) && (agents_on(s.clone(), i.clone(), e.clone()) >= mine.clone()) {
+            return DynamicValue::Bool(false);
+            } else {
+            }
+    }
+    return DynamicValue::Bool(true);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn ports_ready(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut n = count_kind(s.clone(), sys.clone(), p, DynamicValue::Int(2), DynamicValue::Int(0));
+    for k in (range(DynamicValue::Int(0), DynamicValue::Int(2))).into_list() {
+        if (has_card(__ox_idx(&s, DynamicValue::Int(h_ported() as i64)).into_owned(), (sys.clone() * DynamicValue::Int(2)) + k.clone())).is_truthy() {
+            n = n - DynamicValue::Int(1);
+            } else {
+            }
+    }
+    return n.clone();
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn move_targets(s: DynamicValue, from: DynamicValue, p: DynamicValue) -> DynamicValue {
@@ -6337,20 +6587,22 @@ pub fn begin_actions(mut t: DynamicValue, suit: DynamicValue, pips: DynamicValue
         let __ox_ix0 = DynamicValue::Int(h_lore_used() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_taxed() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_ported() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
     return t.clone();
-}
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn court_pay_ok(s: DynamicValue, p: DynamicValue, r: DynamicValue) -> DynamicValue {
-    __ox_stack_check();
-    if r.clone() == DynamicValue::Int(3) {
-        return can_spend(s.clone(), p.clone(), DynamicValue::Int(3));
-        } else {
-        }
-    if r.clone() == DynamicValue::Int(4) {
-        return DynamicValue::Bool((is_leader(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy() && (can_spend(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy());
-        } else {
-        }
-    return DynamicValue::Bool(false);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
@@ -6368,11 +6620,16 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         }
         {
             let __ox_tmp = card_num(c.clone());
+            let __ox_ix0 = DynamicValue::Int(h_lead_num() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
             let __ox_ix0 = DynamicValue::Int(h_best_num() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
         {
-            let __ox_tmp = p.clone();
+            let __ox_tmp = -DynamicValue::Int(1);
             let __ox_ix0 = DynamicValue::Int(h_best_player() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
@@ -6381,15 +6638,47 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             let __ox_ix0 = DynamicValue::Int(h_turns() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = DynamicValue::Int(h_passes() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(18);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
         if __ox_idx(&a, DynamicValue::Int(2)).into_owned() >= DynamicValue::Int(0) {
+            let m = best_marker(t.clone());
+            let v = marker_pair(t.clone(), m.clone());
+            {
+                let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_mk_taken() as i64)).into_owned() + pow2(m.clone());
+                let __ox_ix0 = DynamicValue::Int(h_mk_taken() as i64);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
             {
                 let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_amb_count() as i64)).into_owned() + DynamicValue::Int(1);
                 let __ox_ix0 = DynamicValue::Int(h_amb_count() as i64);
                 *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
             }
             {
-                let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_amb_count() as i64)).into_owned();
+                let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_amb() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned()).into_owned() + DynamicValue::Int(1);
                 let __ox_ix0 = DynamicValue::Int(h_amb() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_amb_first() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned()).into_owned() + __ox_idx(&v, DynamicValue::Int(0)).into_owned();
+                let __ox_ix0 = DynamicValue::Int(h_amb_first() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_amb_second() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned()).into_owned() + __ox_idx(&v, DynamicValue::Int(1)).into_owned();
+                let __ox_ix0 = DynamicValue::Int(h_amb_second() as i64) + __ox_idx(&a, DynamicValue::Int(2)).into_owned();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_tmp = DynamicValue::Int(0);
+                let __ox_ix0 = DynamicValue::Int(h_lead_num() as i64);
                 *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
             }
             } else {
@@ -6407,17 +6696,25 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             let __ox_ix0 = DynamicValue::Int(h_turns() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
+        {
+            let __ox_tmp = kind.clone();
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(18);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
         if kind.clone() == DynamicValue::Int(1) {
-            {
-                let __ox_tmp = card_num(c.clone());
-                let __ox_ix0 = DynamicValue::Int(h_best_num() as i64);
-                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-            }
-            {
-                let __ox_tmp = p.clone();
-                let __ox_ix0 = DynamicValue::Int(h_best_player() as i64);
-                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-            }
+            if card_num(c.clone()) > __ox_idx(&s, DynamicValue::Int(h_best_num() as i64)).into_owned() {
+                {
+                    let __ox_tmp = card_num(c.clone());
+                    let __ox_ix0 = DynamicValue::Int(h_best_num() as i64);
+                    *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+                }
+                {
+                    let __ox_tmp = p.clone();
+                    let __ox_ix0 = DynamicValue::Int(h_best_player() as i64);
+                    *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+                }
+                } else {
+                }
             if ((card_num(c.clone()) == DynamicValue::Int(7)) && (nplayers(s.clone()) == DynamicValue::Int(4))) && (__ox_idx(&s, DynamicValue::Int(h_seized() as i64)).into_owned() == -DynamicValue::Int(1)) {
                 {
                     let __ox_tmp = p.clone();
@@ -6445,25 +6742,55 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             let __ox_ix0 = DynamicValue::Int(h_seized() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
+        {
+            let __ox_tmp = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(19);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
         return set_event(t.clone(), DynamicValue::Int(5), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
         } else {
         }
     if kind.clone() == DynamicValue::Int(4) {
         t = set_event(t, DynamicValue::Int(4), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
-        if phase(s.clone()) == DynamicValue::Int(0) {
+        {
+            let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_passes() as i64)).into_owned() + DynamicValue::Int(1);
+            let __ox_ix0 = DynamicValue::Int(h_passes() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        let mut holders = DynamicValue::Int(0);
+        for q in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+            if hand(t.clone(), q.clone()) != DynamicValue::Int(0) {
+                {
+                    let __ox_rhs = DynamicValue::Int(1);
+                    if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut holders, &__ox_rhs) {
+                        __ox_a.push_str(__ox_b);
+                    } else {
+                        let __ox_l = std::mem::replace(&mut holders, DynamicValue::None);
+                        holders = __ox_l + __ox_rhs;
+                    }
+                }
+                } else {
+                }
+        }
+        if __ox_idx(&t, DynamicValue::Int(h_passes() as i64)).into_owned() >= holders.clone() {
+            return end_chapter(t.clone());
+            } else {
+            }
+        let nx = next_with_cards(t.clone(), p.clone());
+        if nx.clone() < DynamicValue::Int(0) {
             return end_chapter(t.clone());
             } else {
             }
         {
-            let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_turns() as i64)).into_owned() + DynamicValue::Int(1);
-            let __ox_ix0 = DynamicValue::Int(h_turns() as i64);
+            let __ox_tmp = nx.clone();
+            let __ox_ix0 = DynamicValue::Int(h_init() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
-        return advance_turn(t.clone());
+        return start_round(t.clone());
         } else {
         }
     if kind.clone() == DynamicValue::Int(6) {
-        let mut r = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
+        let r = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
         {
             let __ox_tmp = res(s.clone(), p.clone(), r.clone()) - DynamicValue::Int(1);
             let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + r.clone();
@@ -6492,8 +6819,16 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             }
         if r.clone() == DynamicValue::Int(2) {
             {
-                let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned() + DynamicValue::Int(1);
+                let __ox_tmp = DynamicValue::Int(1);
                 let __ox_ix0 = DynamicValue::Int(h_x_battle() as i64);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            } else {
+            }
+        if r.clone() == DynamicValue::Int(3) {
+            {
+                let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_x_secure() as i64)).into_owned() + DynamicValue::Int(1);
+                let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
                 *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
             }
             } else {
@@ -6535,48 +6870,13 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             let __ox_ix0 = DynamicValue::Int(h_x_lead() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
         t = set_event(t, DynamicValue::Int(7), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
         return advance_turn(t.clone());
-        } else {
-        }
-    if kind.clone() == DynamicValue::Int(15) {
-        let i = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
-        let c = __ox_idx(&s, h_court() + i.clone()).into_owned();
-        let mut r = DynamicValue::Int(3);
-        if __ox_idx(&a, DynamicValue::Int(2)).into_owned() == DynamicValue::Int(4) {
-            r = DynamicValue::Int(4);
-            } else {
-            }
-        if (c.clone() < DynamicValue::Int(0)) || !((court_pay_ok(s.clone(), p.clone(), r.clone())).is_truthy()) {
-            return t.clone();
-            } else {
-            }
-        {
-            let __ox_tmp = -DynamicValue::Int(1);
-            let __ox_ix0 = h_court() + i.clone();
-            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-        }
-        {
-            let __ox_tmp = res(s.clone(), p.clone(), r.clone()) - court_cost();
-            let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + r.clone();
-            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-        }
-        {
-            let __ox_tmp = supply(s.clone(), r.clone()) + court_cost();
-            let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + r.clone();
-            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-        }
-        {
-            let __ox_tmp = secured(s.clone(), p.clone()) + pow2(c.clone());
-            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(15);
-            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-        }
-        {
-            let __ox_tmp = power(s.clone(), p.clone()) + court_value(c.clone());
-            let __ox_ix0 = pb(p.clone());
-            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-        }
-        return set_event(t.clone(), DynamicValue::Int(15), p.clone(), i.clone(), c.clone(), DynamicValue::Int(0));
         } else {
         }
     if kind.clone() == DynamicValue::Int(16) {
@@ -6603,7 +6903,7 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         } else {
         }
     let src = source_for(s.clone(), kind.clone());
-    if src == DynamicValue::Int(1) {
+    if src.clone() == DynamicValue::Int(1) {
         {
             let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_acts() as i64)).into_owned() - DynamicValue::Int(1);
             let __ox_ix0 = DynamicValue::Int(h_acts() as i64);
@@ -6625,10 +6925,10 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
                             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
                         }
                         } else {
-                            if (g.clone() == DynamicValue::Int(2)) && (__ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned() > DynamicValue::Int(0)) {
+                            if (g.clone() == DynamicValue::Int(4)) && (__ox_idx(&s, DynamicValue::Int(h_x_secure() as i64)).into_owned() > DynamicValue::Int(0)) {
                                 {
-                                    let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned() - DynamicValue::Int(1);
-                                    let __ox_ix0 = DynamicValue::Int(h_x_battle() as i64);
+                                    let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_x_secure() as i64)).into_owned() - DynamicValue::Int(1);
+                                    let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
                                     *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
                                 }
                                 } else {
@@ -6641,29 +6941,40 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
                         }
                 }
         }
-    {
-        let __ox_tmp = DynamicValue::Int(1);
-        let __ox_ix0 = DynamicValue::Int(h_acted() as i64);
-        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-    }
-    if kind.clone() == DynamicValue::Int(8) {
-        t = do_tax(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
+    if src.clone() == DynamicValue::Int(1) {
+        {
+            let __ox_tmp = DynamicValue::Int(1);
+            let __ox_ix0 = DynamicValue::Int(h_acted() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
         } else {
-            if (kind.clone() == DynamicValue::Int(9)) || (kind.clone() == DynamicValue::Int(10)) {
-                t = do_build_building(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), kind.clone());
+        }
+    if kind.clone() == DynamicValue::Int(8) {
+        t = do_tax(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned());
+        } else {
+            if kind.clone() == DynamicValue::Int(15) {
+                t = do_secure(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
                 } else {
-                    if kind.clone() == DynamicValue::Int(11) {
-                        t = do_build_ships(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
+                    if kind.clone() == DynamicValue::Int(17) {
+                        t = do_influence(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
                         } else {
-                            if kind.clone() == DynamicValue::Int(12) {
-                                t = do_move(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
+                            if (kind.clone() == DynamicValue::Int(9)) || (kind.clone() == DynamicValue::Int(10)) {
+                                t = do_build_building(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), kind.clone());
                                 } else {
-                                    if kind.clone() == DynamicValue::Int(13) {
-                                        t = do_repair(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned());
+                                    if kind.clone() == DynamicValue::Int(11) {
+                                        t = do_build_ships(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
                                         } else {
-                                            if kind.clone() == DynamicValue::Int(14) {
-                                                t = do_battle(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
+                                            if kind.clone() == DynamicValue::Int(12) {
+                                                t = do_move(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
                                                 } else {
+                                                    if kind.clone() == DynamicValue::Int(13) {
+                                                        t = do_repair(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned());
+                                                        } else {
+                                                            if kind.clone() == DynamicValue::Int(14) {
+                                                                t = do_battle(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
+                                                                } else {
+                                                                }
+                                                        }
                                                 }
                                         }
                                 }
@@ -6673,10 +6984,10 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     return settle(t.clone());
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
-pub fn do_tax(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -> DynamicValue {
+pub fn do_tax(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue, sl: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let ty = planet_type(sys.clone());
-    let mut n = DynamicValue::Int(1);
+    let mut n = min_i(DynamicValue::Int(1), supply(t.clone(), ty.clone()));
     if (has_court(t.clone(), p.clone(), court_envoy())).is_truthy() && (supply(t.clone(), ty.clone()) >= DynamicValue::Int(2)) {
         n = DynamicValue::Int(2);
         } else {
@@ -6691,7 +7002,84 @@ pub fn do_tax(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -> Dynami
         let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + ty.clone();
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
+    {
+        let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_taxed() as i64)).into_owned() + pow2((sys.clone() * DynamicValue::Int(2)) + sl.clone());
+        let __ox_ix0 = DynamicValue::Int(h_taxed() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    let o = slot_owner(t.clone(), sys.clone(), sl.clone());
+    if ((o.clone() >= DynamicValue::Int(0)) && (o.clone() != p.clone())) && (agents_left(t.clone(), o.clone()) > DynamicValue::Int(0)) {
+        {
+            let __ox_tmp = cap_of(t.clone(), p.clone(), o.clone()) + DynamicValue::Int(1);
+            let __ox_ix0 = (DynamicValue::Int(cap_base() as i64) + (p.clone() * DynamicValue::Int(4))) + o.clone();
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = captives(t.clone(), p.clone()) + DynamicValue::Int(1);
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(10);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        } else {
+        }
     return set_event(t.clone(), DynamicValue::Int(8), p.clone(), sys.clone(), ty.clone(), n.clone());
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn do_influence(mut t: DynamicValue, p: DynamicValue, i: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut n = DynamicValue::Int(1);
+    if (is_leader(t.clone(), p.clone(), DynamicValue::Int(4))).is_truthy() && (agents_left(t.clone(), p.clone()) >= DynamicValue::Int(2)) {
+        n = DynamicValue::Int(2);
+        } else {
+        }
+    {
+        let __ox_tmp = agents_on(t.clone(), i.clone(), p.clone()) + n.clone();
+        let __ox_ix0 = (DynamicValue::Int(agents_base() as i64) + (i.clone() * DynamicValue::Int(4))) + p.clone();
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    return set_event(t.clone(), DynamicValue::Int(17), p.clone(), i.clone(), court(t.clone(), i.clone()), n.clone());
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn do_secure(mut t: DynamicValue, p: DynamicValue, i: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let c = court(t.clone(), i.clone());
+    let mut taken = DynamicValue::Int(0);
+    for e in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+        let k = agents_on(t.clone(), i.clone(), e.clone());
+        if (e.clone() != p.clone()) && (k.clone() > DynamicValue::Int(0)) {
+            {
+                let __ox_tmp = cap_of(t.clone(), p.clone(), e.clone()) + k.clone();
+                let __ox_ix0 = (DynamicValue::Int(cap_base() as i64) + (p.clone() * DynamicValue::Int(4))) + e.clone();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_tmp = captives(t.clone(), p.clone()) + k.clone();
+                let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(10);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_rhs = k.clone();
+                if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut taken, &__ox_rhs) {
+                    __ox_a.push_str(__ox_b);
+                } else {
+                    let __ox_l = std::mem::replace(&mut taken, DynamicValue::None);
+                    taken = __ox_l + __ox_rhs;
+                }
+            }
+            } else {
+            }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = (DynamicValue::Int(agents_base() as i64) + (i.clone() * DynamicValue::Int(4))) + e.clone();
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+    }
+    {
+        let __ox_tmp = secured(t.clone(), p.clone()) + pow2(c.clone());
+        let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(15);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    t = refill_court(t, i.clone());
+    return set_event(t.clone(), DynamicValue::Int(15), p.clone(), i.clone(), c.clone(), taken.clone());
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn build_dmg(t: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
@@ -6745,7 +7133,17 @@ pub fn do_build_building(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue
 pub fn do_build_ships(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let d = build_dmg(t.clone(), sys.clone(), p.clone());
-    let mut want = count_kind(t.clone(), sys.clone(), p.clone(), DynamicValue::Int(2), DynamicValue::Int(0));
+    let mut k = DynamicValue::Int(0);
+    if (has_card(__ox_idx(&t, DynamicValue::Int(h_ported() as i64)).into_owned(), sys.clone() * DynamicValue::Int(2))).is_truthy() {
+        k = DynamicValue::Int(1);
+        } else {
+        }
+    {
+        let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_ported() as i64)).into_owned() + pow2((sys.clone() * DynamicValue::Int(2)) + k);
+        let __ox_ix0 = DynamicValue::Int(h_ported() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    let mut want = DynamicValue::Int(1);
     if (is_leader(t.clone(), p.clone(), DynamicValue::Int(0))).is_truthy() {
         {
             let __ox_rhs = DynamicValue::Int(1);
@@ -6973,14 +7371,6 @@ pub fn hit_buildings(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n:
                             let __ox_ix0 = pb(taker.clone()) + DynamicValue::Int(9);
                             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
                         }
-                        if (was_city.clone()).is_truthy() {
-                            {
-                                let __ox_tmp = captives(t.clone(), taker.clone()) + DynamicValue::Int(1);
-                                let __ox_ix0 = pb(taker.clone()) + DynamicValue::Int(10);
-                                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-                            }
-                            } else {
-                            }
                         } else {
                         }
                     if (was_city.clone()).is_truthy() {
@@ -7181,11 +7571,11 @@ pub fn settle(s: DynamicValue) -> DynamicValue {
         return advance_turn(clear_extras(s.clone()));
         } else {
         }
-    if (!((any.clone()).is_truthy()) && (acts(s.clone()) == DynamicValue::Int(0))) && ((((__ox_idx(&s, DynamicValue::Int(h_x_build() as i64)).into_owned() + __ox_idx(&s, DynamicValue::Int(h_x_move() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_lead() as i64)).into_owned()) == DynamicValue::Int(0)) {
+    if (!((any.clone()).is_truthy()) && (acts(s.clone()) == DynamicValue::Int(0))) && (extras_left(s.clone()) == DynamicValue::Int(0)) {
         return advance_turn(s.clone());
         } else {
         }
-    if ((acts(s.clone()) == DynamicValue::Int(0)) && ((((__ox_idx(&s, DynamicValue::Int(h_x_build() as i64)).into_owned() + __ox_idx(&s, DynamicValue::Int(h_x_move() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_battle() as i64)).into_owned()) + __ox_idx(&s, DynamicValue::Int(h_x_lead() as i64)).into_owned()) == DynamicValue::Int(0))) && (__ox_idx(&s, DynamicValue::Int(h_acted() as i64)).into_owned() == DynamicValue::Int(1)) {
+    if ((acts(s.clone()) == DynamicValue::Int(0)) && (extras_left(s.clone()) == DynamicValue::Int(0))) && (__ox_idx(&s, DynamicValue::Int(h_acted() as i64)).into_owned() == DynamicValue::Int(1)) {
         return advance_turn(s.clone());
         } else {
         }
@@ -7220,18 +7610,42 @@ pub fn clear_extras(s: DynamicValue) -> DynamicValue {
         let __ox_ix0 = DynamicValue::Int(h_x_lead() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_x_secure() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
     return t.clone();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn next_with_cards(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let n = nplayers(s.clone());
+    for k in (range(DynamicValue::Int(1), n.clone())).into_list() {
+        let q = (p.clone() + k.clone()) % n.clone();
+        if hand(s.clone(), q.clone()) != DynamicValue::Int(0) {
+            return q.clone();
+            } else {
+            }
+    }
+    return -DynamicValue::Int(1);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn advance_turn(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = clear_extras(s);
-    if __ox_idx(&t, DynamicValue::Int(h_turns() as i64)).into_owned() >= nplayers(t.clone()) {
+    let n = nplayers(t.clone());
+    let lead = __ox_idx(&t, DynamicValue::Int(h_init() as i64)).into_owned();
+    let mut q = (cur(t.clone()) + DynamicValue::Int(1)) % n.clone();
+    while (q.clone() != lead.clone()) && (hand(t.clone(), q.clone()) == DynamicValue::Int(0)) {
+        q = (q + DynamicValue::Int(1)) % n.clone();
+    }
+    if q.clone() == lead.clone() {
         return end_round(t.clone());
         } else {
         }
     {
-        let __ox_tmp = (cur(t.clone()) + DynamicValue::Int(1)) % nplayers(t.clone());
+        let __ox_tmp = q.clone();
         let __ox_ix0 = DynamicValue::Int(h_cur() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
@@ -7281,30 +7695,21 @@ pub fn end_round(s: DynamicValue) -> DynamicValue {
         return end_chapter(t.clone());
         } else {
         }
-    let mut guard = DynamicValue::Int(0);
-    while (hand(t.clone(), __ox_idx(&t, DynamicValue::Int(h_init() as i64)).into_owned()) == DynamicValue::Int(0)) && (guard.clone() < DynamicValue::Int(6)) {
+    if hand(t.clone(), __ox_idx(&t, DynamicValue::Int(h_init() as i64)).into_owned()) == DynamicValue::Int(0) {
         {
-            let __ox_tmp = (__ox_idx(&t, DynamicValue::Int(h_init() as i64)).into_owned() + DynamicValue::Int(1)) % nplayers(t.clone());
+            let __ox_tmp = next_with_cards(t.clone(), __ox_idx(&t, DynamicValue::Int(h_init() as i64)).into_owned());
             let __ox_ix0 = DynamicValue::Int(h_init() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
-        {
-            let __ox_rhs = DynamicValue::Int(1);
-            if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut guard, &__ox_rhs) {
-                __ox_a.push_str(__ox_b);
-            } else {
-                let __ox_l = std::mem::replace(&mut guard, DynamicValue::None);
-                guard = __ox_l + __ox_rhs;
-            }
+        } else {
         }
-    }
     return start_round(t.clone());
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn amb_tally(s: DynamicValue, p: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if a.clone() == DynamicValue::Int(0) {
-        return res(s.clone(), p.clone(), DynamicValue::Int(0)) + res(s.clone(), p.clone(), DynamicValue::Int(1));
+        return ((res(s.clone(), p.clone(), DynamicValue::Int(0)) + res(s.clone(), p.clone(), DynamicValue::Int(1))) + court_icons(s.clone(), p.clone(), DynamicValue::Int(0))) + court_icons(s.clone(), p.clone(), DynamicValue::Int(1));
         } else {
         }
     if a.clone() == DynamicValue::Int(1) {
@@ -7316,21 +7721,35 @@ pub fn amb_tally(s: DynamicValue, p: DynamicValue, a: DynamicValue) -> DynamicVa
         } else {
         }
     if a.clone() == DynamicValue::Int(3) {
-        return res(s.clone(), p.clone(), DynamicValue::Int(3));
+        return res(s.clone(), p.clone(), DynamicValue::Int(3)) + court_icons(s.clone(), p.clone(), DynamicValue::Int(3));
         } else {
         }
-    return res(s.clone(), p.clone(), DynamicValue::Int(4));
+    return res(s.clone(), p.clone(), DynamicValue::Int(4)) + court_icons(s.clone(), p.clone(), DynamicValue::Int(4));
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn city_bonus(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let built = DynamicValue::Int(5) - cities_left(s, p);
+    if built.clone() >= DynamicValue::Int(5) {
+        return DynamicValue::Int(5);
+        } else {
+        }
+    if built.clone() >= DynamicValue::Int(4) {
+        return DynamicValue::Int(2);
+        } else {
+        }
+    return DynamicValue::Int(0);
 }
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn score_ambition(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s.clone();
-    let rank = __ox_idx(&s, DynamicValue::Int(h_amb() as i64) + a.clone()).into_owned();
-    if rank.clone() == DynamicValue::Int(0) {
+    if __ox_idx(&s, DynamicValue::Int(h_amb() as i64) + a.clone()).into_owned() == DynamicValue::Int(0) {
         return t.clone();
         } else {
         }
-    let vals = marker_values(rank.clone() - DynamicValue::Int(1));
+    let first_v = __ox_idx(&s, DynamicValue::Int(h_amb_first() as i64) + a.clone()).into_owned();
+    let second_v = __ox_idx(&s, DynamicValue::Int(h_amb_second() as i64) + a.clone()).into_owned();
     let n = nplayers(t.clone());
     let mut top = DynamicValue::Int(0);
     for p in (range(DynamicValue::Int(0), n.clone())).into_list() {
@@ -7363,25 +7782,41 @@ pub fn score_ambition(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             } else {
             }
     }
+    let mut at_second = DynamicValue::Int(0);
+    for p in (range(DynamicValue::Int(0), n.clone())).into_list() {
+        if (second.clone() > DynamicValue::Int(0)) && (amb_tally(t.clone(), p.clone(), a.clone()) == second.clone()) {
+            {
+                let __ox_rhs = DynamicValue::Int(1);
+                if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut at_second, &__ox_rhs) {
+                    __ox_a.push_str(__ox_b);
+                } else {
+                    let __ox_l = std::mem::replace(&mut at_second, DynamicValue::None);
+                    at_second = __ox_l + __ox_rhs;
+                }
+            }
+            } else {
+            }
+    }
     for p in (range(DynamicValue::Int(0), n.clone())).into_list() {
         let mut m = amb_tally(t.clone(), p.clone(), a.clone());
         if m.clone() == top.clone() {
-            {
-                let __ox_tmp = power(t.clone(), p.clone()) + {
-let __match_scrutinee = DynamicValue::Bool(at_top.clone() == DynamicValue::Int(1));
-if __match_scrutinee == DynamicValue::Bool(true) {
-__ox_idx(&vals, DynamicValue::Int(0)).into_owned()
-} else if true {
-__ox_idx(&vals, DynamicValue::Int(1)).into_owned()
-} else { panic!("no match arm matched the scrutinee: {:?}", __match_scrutinee) }
-};
-                let __ox_ix0 = pb(p.clone());
-                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
-            }
-            } else {
-                if ((at_top.clone() == DynamicValue::Int(1)) && (second.clone() > DynamicValue::Int(0))) && (m.clone() == second.clone()) {
+            if at_top.clone() == DynamicValue::Int(1) {
+                {
+                    let __ox_tmp = (power(t.clone(), p.clone()) + first_v.clone()) + city_bonus(t.clone(), p.clone());
+                    let __ox_ix0 = pb(p.clone());
+                    *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+                }
+                } else {
                     {
-                        let __ox_tmp = power(t.clone(), p.clone()) + __ox_idx(&vals, DynamicValue::Int(1)).into_owned();
+                        let __ox_tmp = power(t.clone(), p.clone()) + second_v.clone();
+                        let __ox_ix0 = pb(p.clone());
+                        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+                    }
+                }
+            } else {
+                if ((at_top.clone() == DynamicValue::Int(1)) && (at_second.clone() == DynamicValue::Int(1))) && (m.clone() == second.clone()) {
+                    {
+                        let __ox_tmp = power(t.clone(), p.clone()) + second_v.clone();
                         let __ox_ix0 = pb(p.clone());
                         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
                     }
@@ -7394,7 +7829,7 @@ __ox_idx(&vals, DynamicValue::Int(1)).into_owned()
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn end_chapter(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
-    let mut t = s;
+    let mut t = s.clone();
     for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
         t = score_ambition(t, a.clone());
     }
@@ -7418,16 +7853,68 @@ pub fn end_chapter(s: DynamicValue) -> DynamicValue {
     }
     t = grant_lore(t);
     t = set_event(t.clone(), DynamicValue::Int(21), chapter(t.clone()), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
+    if __ox_idx(&s, DynamicValue::Int(h_amb() as i64) + DynamicValue::Int(2)).into_owned() > DynamicValue::Int(0) {
+        for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+            {
+                let __ox_tmp = DynamicValue::Int(0);
+                let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(9);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+        }
+        } else {
+        }
+    if __ox_idx(&s, DynamicValue::Int(h_amb() as i64) + DynamicValue::Int(1)).into_owned() > DynamicValue::Int(0) {
+        for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+            {
+                let __ox_tmp = DynamicValue::Int(0);
+                let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(10);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+        }
+        for i in (range(DynamicValue::Int(0), DynamicValue::Int(16))).into_list() {
+            {
+                let __ox_tmp = DynamicValue::Int(0);
+                let __ox_ix0 = DynamicValue::Int(cap_base() as i64) + i.clone();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+        }
+        } else {
+        }
     for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
         {
             let __ox_tmp = DynamicValue::Int(0);
             let __ox_ix0 = DynamicValue::Int(h_amb() as i64) + a.clone();
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = DynamicValue::Int(h_amb_first() as i64) + a.clone();
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = DynamicValue::Int(h_amb_second() as i64) + a.clone();
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
     }
     {
         let __ox_tmp = DynamicValue::Int(0);
         let __ox_ix0 = DynamicValue::Int(h_amb_count() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_mk_taken() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_passes() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
+    {
+        let __ox_tmp = min_i(DynamicValue::Int(3), __ox_idx(&s, DynamicValue::Int(h_flips() as i64)).into_owned() + DynamicValue::Int(1));
+        let __ox_ix0 = DynamicValue::Int(h_flips() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
@@ -7495,11 +7982,11 @@ pub fn is_over(s: DynamicValue) -> DynamicValue {
 #[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn winner(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
-    let mut best = DynamicValue::Int(0);
-    for p in (range(DynamicValue::Int(1), nplayers(s.clone()))).into_list() {
-        let a = DynamicValue::list(vec![power(s.clone(), p.clone()), total_resources(s.clone(), p.clone()), trophies(s.clone(), p.clone())]);
-        let b = DynamicValue::list(vec![power(s.clone(), best.clone()), total_resources(s.clone(), best.clone()), trophies(s.clone(), best.clone())]);
-        if (__ox_idx(&a, DynamicValue::Int(0)).into_owned() > __ox_idx(&b, DynamicValue::Int(0)).into_owned()) || ((__ox_idx(&a, DynamicValue::Int(0)).into_owned() == __ox_idx(&b, DynamicValue::Int(0)).into_owned()) && ((__ox_idx(&a, DynamicValue::Int(1)).into_owned() > __ox_idx(&b, DynamicValue::Int(1)).into_owned()) || ((__ox_idx(&a, DynamicValue::Int(1)).into_owned() == __ox_idx(&b, DynamicValue::Int(1)).into_owned()) && (__ox_idx(&a, DynamicValue::Int(2)).into_owned() > __ox_idx(&b, DynamicValue::Int(2)).into_owned())))) {
+    let n = nplayers(s.clone());
+    let mut best = __ox_idx(&s, DynamicValue::Int(h_init() as i64)).into_owned();
+    for k in (range(DynamicValue::Int(1), n.clone())).into_list() {
+        let p = (__ox_idx(&s, DynamicValue::Int(h_init() as i64)).into_owned() + k.clone()) % n.clone();
+        if power(s.clone(), p.clone()) > power(s.clone(), best.clone()) {
             best = p.clone();
             } else {
             }
@@ -7542,7 +8029,7 @@ pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         } else {
         }
     if k.clone() == DynamicValue::Int(4) {
-        return DynamicValue::Int(1);
+        return DynamicValue::Int(0);
         } else {
         }
     if k.clone() == DynamicValue::Int(5) {
@@ -7550,11 +8037,35 @@ pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         } else {
         }
     if k.clone() == DynamicValue::Int(6) {
+        if __ox_idx(&a, DynamicValue::Int(1)).into_owned() == DynamicValue::Int(2) {
+            return DynamicValue::Int(3);
+            } else {
+            }
         return DynamicValue::Int(12);
         } else {
         }
     if k.clone() == DynamicValue::Int(15) {
-        return DynamicValue::Int(55);
+        return DynamicValue::Int(85);
+        } else {
+        }
+    if k.clone() == DynamicValue::Int(17) {
+        if (can_secure(s.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), p.clone())).is_truthy() {
+            return DynamicValue::Int(6);
+            } else {
+            }
+        let mine = agents_on(s.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), p.clone());
+        let mut best = DynamicValue::Int(0);
+        for e in (range(DynamicValue::Int(0), nplayers(s.clone()))).into_list() {
+            if e.clone() != p.clone() {
+                best = max_i(best, agents_on(s.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), e.clone()));
+                } else {
+                }
+        }
+        if ((best.clone() - mine.clone()) > DynamicValue::Int(2)) || (mine.clone() >= DynamicValue::Int(3)) {
+            return DynamicValue::Int(8);
+            } else {
+            }
+        return DynamicValue::Int(36) + (mine.clone() * DynamicValue::Int(2));
         } else {
         }
     if k.clone() == DynamicValue::Int(16) {

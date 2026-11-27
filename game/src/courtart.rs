@@ -41,7 +41,7 @@ pub fn paint(p: &Painter, r: Rect, card: CourtCard, enabled: bool, alpha: f32) {
     let strong = Stroke::new(1.4, col);
     let c = inner.center();
 
-    match card.0 {
+    match card.0 % 5 {
         // Envoy: a standing figure with a pennant.
         0 => {
             let head = pos2(c.x - inner.width() * 0.13, inner.top() + inner.height() * 0.25);

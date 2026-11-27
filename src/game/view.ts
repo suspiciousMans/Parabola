@@ -15,8 +15,12 @@ export const SYSTEMS = 24;
 export const SUITS = ['Administration', 'Aggression', 'Construction', 'Mobilization'];
 export const RESOURCES = ['Material', 'Fuel', 'Weapons', 'Relics', 'Psionic'];
 export const AMBITIONS = ['Tycoon', 'Tyrant', 'Warlord', 'Keeper', 'Empath'];
-export const COURT_CARDS = ['Envoy', 'Seal', 'Writ', 'Pact', 'Accord'];
-export const COURT_COST = 1;
+export const COURT_CARDS = [
+  'Envoy', 'Seal', 'Writ', 'Pact', 'Accord',
+  'Herald', 'Warden', 'Charter', 'Oath', 'Concord',
+];
+/** Agents each player starts with. */
+export const AGENTS = 10;
 export const LEADERS = ['Broker', 'Admiral', 'Architect', 'Seer', 'Pilgrim', 'Corsair'];
 
 // Layout from rules/ox/reach.ox (h_* role indices, p_base / p_stride and the
@@ -87,7 +91,7 @@ export function viewOf(state: GameState): PublicView {
       reserve: state[base + 8] ?? 0,
       trophies: state[base + 9] ?? 0,
       captives: state[base + 10] ?? 0,
-      secured: bits(state[base + 15] ?? 0, 5),
+      secured: bits(state[base + 15] ?? 0, 10),
       hand: bits(state[base + 11] ?? 0, 28),
       leader: state[base + 16] ?? 0,
       lore: state[base + 17] ?? 0,
@@ -158,6 +162,7 @@ const KIND_LABELS = [
   'battle',
   'secure',
   'spend lore',
+  'influence',
 ];
 
 /** A short, human label for a legal action, used as the button text. */
@@ -165,7 +170,7 @@ export function actionLabel(action: Action): string {
   const [kind, a, b, c] = action;
   switch (kind) {
     case 0:
-      return `Lead ${cardName(a)}${b >= 0 ? ` · ${AMBITIONS[b] ?? ''}` : ''}`;
+      return `Lead ${cardName(a)}${b >= 0 ? ` · declare ${AMBITIONS[b] ?? ''}` : ''}`;
     case 1:
       return `Surpass with ${cardName(a)}`;
     case 2:
@@ -195,7 +200,9 @@ export function actionLabel(action: Action): string {
       return `Battle in ${a} vs player ${b + 1} (${assault}A ${skirmish}S ${raid}R)`;
     }
     case 15:
-      return `Secure ${COURT_CARDS[a] ?? '?'} · ${COURT_COST} ${b === 4 ? 'Psionic' : 'Relic'}`;
+      return `Secure Court card ${a + 1}`;
+    case 17:
+      return `Influence Court card ${a + 1}`;
     case 16:
       return 'Spend Lore · extra action';
     default:

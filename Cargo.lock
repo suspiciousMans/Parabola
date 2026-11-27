@@ -510,6 +510,7 @@ dependencies = [
 name = "ember_reach"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "anyhow",
  "dust_engine",
  "egui",

@@ -121,7 +121,7 @@ pub fn json(s: &State, held: bool) -> String {
         .collect();
     let trophies: Vec<i64> = (0..n).map(|p| s.trophies(p)).collect();
     let captives: Vec<i64> = (0..n).map(|p| s.captives(p)).collect();
-    let court: Vec<i64> = (0..5).map(|i| s.court_card(i).map(|c| c.0 as i64).unwrap_or(-1)).collect();
+    let court: Vec<i64> = (0..s.court_slots()).map(|i| s.court_card(i).map(|c| c.0 as i64).unwrap_or(-1)).collect();
     let secured: Vec<Vec<u8>> = (0..n).map(|p| s.secured(p).into_iter().map(|c| c.0).collect()).collect();
     let tallies: Vec<Vec<i64>> = (0..n)
         .map(|p| (0..5).map(|a| s.ambition_tally(p, a)).collect())
