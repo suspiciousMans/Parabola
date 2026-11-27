@@ -66,6 +66,30 @@ mod imp {
     pub fn leave() {
         run("window.emberSite.leave(); ''");
     }
+
+    /// The board and its sky are built: the page can take its loading veil down.
+    pub fn ready() {
+        run("if (window.emberBoardReady) window.emberBoardReady(); ''");
+    }
+
+    /// Publish the frame probe as a JS global and a hidden DOM node. The page's
+    /// probe server receives the same JSON so the assertions read one snapshot.
+    pub fn export_probe(json: &str, ready: bool) {
+        let lit = serde_json::to_string(json).unwrap_or_else(|_| "\"{}\"".into());
+        let js = format!(
+            "window.__reachProbe = JSON.parse({lit}); window.__reachReady = {ready};\
+             var p=document.getElementById('reach-probe');\
+             if(!p){{p=document.createElement('pre');p.id='reach-probe';\
+             p.style.cssText='position:fixed;left:-10000px;top:0;width:1px;height:1px;overflow:hidden';\
+             document.body.appendChild(p);}}\
+             p.textContent = JSON.stringify(window.__reachProbe);\
+             if (window.__reachProbeName) {{\
+               fetch('/probe?name=' + encodeURIComponent(window.__reachProbeName),\
+                 {{method:'POST', body: JSON.stringify(window.__reachProbe)}});\
+             }}\n+             ''"
+        );
+        run(&js);
+    }
 }
 
 #[cfg(not(target_os = "emscripten"))]
@@ -79,9 +103,11 @@ mod imp {
     }
     pub fn submit(_: Action) {}
     pub fn leave() {}
+    pub fn ready() {}
+    pub fn export_probe(_: &str, _: bool) {}
 }
 
-pub use imp::{enabled, leave, submit, take};
+pub use imp::{enabled, export_probe, leave, ready, submit, take};
 
 /// Reads the snapshot JSON the page builds (see `emberSite.take` in game.ts).
 pub fn parse(raw: &str) -> Option<Snap> {

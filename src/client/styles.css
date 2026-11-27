@@ -334,6 +334,39 @@ code {
 body.playing { margin: 0; overflow: hidden; background: #0b0d12; }
 .stage { position: fixed; inset: 0; }
 .stage canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+/* Loading veil: covers the black canvas until the game says the sky is up. */
+.boardloading {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  background: radial-gradient(circle at 50% 45%, #1a1730 0%, #0b0d12 62%);
+  transition: opacity 0.5s ease;
+}
+.boardloading.done { opacity: 0; pointer-events: none; }
+.boardloading-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid #2c2940;
+  border-top-color: #d9a85a;
+  animation: board-spin 1.1s linear infinite;
+}
+.boardloading-text {
+  color: #b7a98f;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+@keyframes board-spin { to { transform: rotate(360deg); } }
+@keyframes board-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .boardloading-mark { animation: board-pulse 2.4s ease-in-out infinite; }
+}
+
 .stagebar {
   position: fixed; right: 12px; bottom: 10px;
   display: flex; gap: 14px; align-items: center;

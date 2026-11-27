@@ -15,6 +15,8 @@ export const SYSTEMS = 24;
 export const SUITS = ['Administration', 'Aggression', 'Construction', 'Mobilization'];
 export const RESOURCES = ['Material', 'Fuel', 'Weapons', 'Relics', 'Psionic'];
 export const AMBITIONS = ['Tycoon', 'Tyrant', 'Warlord', 'Keeper', 'Empath'];
+export const COURT_CARDS = ['Envoy', 'Seal', 'Writ', 'Pact', 'Accord'];
+export const COURT_COST = 1;
 
 // Layout from rules/ox/reach.ox (h_* role indices, p_base / p_stride and the
 // ships / slots / supply blocks).
@@ -32,6 +34,7 @@ export type SeatView = {
   reserve: number;
   trophies: number;
   captives: number;
+  secured: number[];
   hand: number[];
 };
 
@@ -48,6 +51,8 @@ export type PublicView = {
   actionsLeft: number;
   actionSuit: number;
   over: boolean;
+  court: (number | null)[];
+  courtAvailable: number;
   ambitions: number[];
   supply: number[];
   seats: SeatView[];
@@ -78,6 +83,7 @@ export function viewOf(state: GameState): PublicView {
       reserve: state[base + 8] ?? 0,
       trophies: state[base + 9] ?? 0,
       captives: state[base + 10] ?? 0,
+      secured: bits(state[base + 15] ?? 0, 5),
       hand: bits(state[base + 11] ?? 0, 28),
     });
   }
@@ -102,6 +108,7 @@ export function viewOf(state: GameState): PublicView {
     systems.push({ inPlay: Math.floor(outMask / 2 ** cluster) % 2 === 0, ships, slots });
   }
 
+  const court = [35, 36, 37, 38, 39].map((i) => ((state[i] ?? -1) >= 0 ? state[i] : null));
   return {
     players,
     chapter: state[1] ?? 1,
@@ -112,6 +119,8 @@ export function viewOf(state: GameState): PublicView {
     actionsLeft: state[11] ?? 0,
     actionSuit: Math.max(0, state[12] ?? 0),
     over: state[2] === 4,
+    court,
+    courtAvailable: court.filter((c) => c !== null).length,
     ambitions: [22, 23, 24, 25, 26].map((i) => state[i] ?? 0),
     supply: [0, 1, 2, 3, 4].map((t) => state[SUPPLY_BASE + t] ?? 0),
     seats,
@@ -141,6 +150,7 @@ const KIND_LABELS = [
   'move',
   'repair',
   'battle',
+  'secure',
 ];
 
 /** A short, human label for a legal action, used as the button text. */
@@ -177,6 +187,8 @@ export function actionLabel(action: Action): string {
       const raid = c % 7;
       return `Battle in ${a} vs player ${b + 1} (${assault}A ${skirmish}S ${raid}R)`;
     }
+    case 15:
+      return `Secure ${COURT_CARDS[a] ?? '?'} · ${COURT_COST} Relic`;
     default:
       return KIND_LABELS[kind] ?? `action ${kind}`;
   }

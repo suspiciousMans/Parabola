@@ -30,8 +30,9 @@ Looked up but not read in full (so nothing here relies on them): No Man's Sky UI
 ## Rules we follow
 
 **Hierarchy.** Three levels, in this order: (1) whose turn it is and what they can do now (status line and the
-hand, bottom centre); (2) the standings (left column: power large, resources as small coloured pips); (3) chapter
-and ambitions (top right, quiet). The log is dim and fades. Nothing sits in the middle of the board.
+hand, bottom centre); (2) the standings (left column: power large, resources as small coloured pips, the Court row
+and each player's secured cards); (3) chapter and ambitions (top right, quiet). The log is dim and fades. Nothing
+sits in the middle of the board.
 
 **Type.** Two faces only: Chakra Petch SemiBold for headings, numbers and labels (set in caps at small sizes) and
 IBM Plex Sans for body text. Both are SIL Open Font License and ship in `game/assets/fonts` with their licences.

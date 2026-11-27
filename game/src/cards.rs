@@ -186,7 +186,7 @@ pub struct Table {
     pub follows: Vec<Option<Card>>,
 }
 
-/// Screen geometry of the three map-edge slots (lead, surpass-copy-pivot, discard).
+/// Screen geometry of the played-card row (lead, surpass-copy-pivot, discard).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Slots {
     pub lead: [f32; 2],
@@ -200,21 +200,23 @@ fn lerp(a: Pos2, b: Pos2, t: f32) -> Pos2 {
     pos2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
 
-fn slot_rect(c: [f32; 2], w: f32, dy: f32) -> Rect {
-    Rect::from_center_size(pos2(c[0], c[1] + dy), vec2(w, w * CARD_H / CARD_W))
+fn slot_rect(c: [f32; 2], w: f32, dx: f32) -> Rect {
+    Rect::from_center_size(pos2(c[0] + dx, c[1]), vec2(w, w * CARD_H / CARD_W))
 }
 
 pub fn draw_table(ctx: &egui::Context, t: &Table, flies: &[Fly], s: &Slots) {
     if s.card_w <= 1.0 {
         return;
     }
-    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("cardfx")));
+    // Between the table and the HUD: a played card can never cover the
+    // standings, the Court row or the hand's controls.
+    let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("cardfx")));
     if let Some(c) = t.lead {
         paint_card(&p, slot_rect(s.lead, s.card_w, 0.0), Some(c), 0.0, 1.0);
     }
     for (i, c) in t.follows.iter().enumerate() {
-        let dy = (i as f32 - (t.follows.len() as f32 - 1.0) / 2.0) * s.card_w * 0.55;
-        paint_card(&p, slot_rect(s.follow, s.card_w, dy), *c, if c.is_some() { 0.0 } else { 1.0 }, 1.0);
+        let dx = (i as f32 - (t.follows.len() as f32 - 1.0) / 2.0) * s.card_w * 0.82;
+        paint_card(&p, slot_rect(s.follow, s.card_w, dx), *c, if c.is_some() { 0.0 } else { 1.0 }, 1.0);
     }
     for f in flies {
         let k = ease_in_out(f.t / f.dur);
@@ -264,6 +266,11 @@ pub fn hand_card(ui: &mut egui::Ui, card: Card, index: usize, now: f64, seen_now
     seen_now.push(card.0);
     let t0 = HAND.with(|h| *h.borrow_mut().seen.entry(card.0).or_insert(now));
     let k = ease_out(((now - t0) as f32 - index as f32 * 0.08) / 0.4);
+    // A held frame (probe, jump, paused bot) gets no continuous repaints, so a
+    // fresh deal would stay at zero alpha forever. Keep painting until it lands.
+    if k < 1.0 {
+        ui.ctx().request_repaint();
+    }
     let (slot, resp) = ui.allocate_exact_size(vec2(CARD_W, CARD_H + 18.0), egui::Sense::click());
     let lift = ui.ctx().animate_bool_with_time(egui::Id::new(("lift", card.0)), resp.hovered() && k >= 1.0, 0.12);
     let rect = Rect::from_min_size(slot.min + vec2(0.0, 18.0 - 14.0 * lift + 70.0 * (1.0 - k)), vec2(CARD_W, CARD_H)).expand(lift * 3.0);
