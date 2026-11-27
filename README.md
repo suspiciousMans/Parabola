@@ -37,11 +37,20 @@ Pick 2 to 4 players, each Human or Bot (hot-seat asks the next human to confirm 
   them take any path); **Repair** one damaged piece; **Battle** with assault, skirmish and raid dice. A **Prelude**
   spends a resource for an extra action; Relics are reserved for the Court.
 * Court: five face-up court cards sit on the board. In your action step, spend 1 Relic to secure one; it
-  leaves the row and stays in your player panel, scoring 1 power. The row is not refilled.
+  leaves the row and stays in your player panel, scoring 1 power and a lasting effect. The row is not refilled.
+  Envoy: Tax takes one more. Seal: ignore the first building hit in each battle against you. Writ: Repair
+  fixes every damaged piece of yours in the system. Pact: ignore the first self hit in each of your attacks.
+  Accord: +1 power at each chapter end.
+* Leaders: each player is dealt one at setup, with one starting resource and one rule bend. Broker (Fuel):
+  Build ships places one more. Admiral (Weapons): one more ship hit when attacking. Architect (Material):
+  builds are never damaged. Seer (Psionic): +1 power at chapter end while holding Psionic. Pilgrim (Relics):
+  may secure with Psionic. Corsair (Fuel): each raid key takes two.
+* Lore: after each chapter is scored, the player(s) with the least power gain a Lore token (at most 3). Once
+  per turn on your action step, spend one for an extra action of the current suit.
 * After 6 tricks the chapter's declared ambitions score their marker values, then cities pay 1 power each.
   The game ends when a player reaches the power goal at a chapter end, or after five chapters; most power wins.
 
-The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 14 tests in `rules/ox/tests/`.
+The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 21 tests in `rules/ox/tests/`.
 
 ## Layout
 
@@ -145,6 +154,7 @@ card's suit; repair fixes one piece; builds cost no resources; the lead passing 
 marker ranks follow declaration order; ties for first share the second value; destroyed ships are lost;
 the intercept round; catapult moves along any-length paths; seat roles A/B/C on the setup cards.
 Court cards are the fixed five-card row; securing costs 1 Relic, scores 1 power and does not spend an action
-pip; the row is not refilled; Guild/Vox effects are deferred.
+pip; the row is not refilled. Court effects, the six leaders and Lore are this game's own designs, not
+transcribed from any published card.
 
-Deferred: Guild/Vox Court effects, leaders, lore, ambition city bonuses.
+Deferred: ambition city bonuses.

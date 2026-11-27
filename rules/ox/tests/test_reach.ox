@@ -213,3 +213,127 @@ fn test_destroyed_starport_is_only_a_trophy() {
     assert_eq(trophies(after, 1), before_t + 1)
     assert_eq(captives(after, 1), before_c)
 }
+
+// ---- leaders, court effects, lore -----------------------------------------
+
+fn act_as(s, p) {
+    let t = s
+    t[h_cur()] = p
+    t[h_phase()] = 2
+    t[h_acts()] = 0
+    t[h_acted()] = 0
+    t[h_lore_used()] = 0
+    return t
+}
+
+fn give_court(s, p, c) {
+    let t = s
+    t[pb(p) + 15] = secured(t, p) + pow2(c)
+    t[h_court() + c] = -1
+    return t
+}
+
+fn test_leaders_are_distinct_and_start_with_their_resource() {
+    for n in [2, 3, 4] {
+        for seed in [3, 8, 21] {
+            let s = new_game(n, seed, 0)
+            let total = 0
+            for p in range(0, n) {
+                let l = leader(s, p)
+                assert(l >= 0 && l < n_leaders())
+                for q in range(0, n) { if q != p { assert(leader(s, q) != l) } }
+                assert(res(s, p, leader_res(l)) >= 1)
+                for t in range(0, 5) { total = total + res(s, p, t) }
+            }
+            for t in range(0, 5) { total = total + supply(s, t) }
+            assert_eq(total, 25)
+        }
+    }
+}
+
+fn test_battle_does_not_touch_the_court_row() {
+    let s = new_game(2, 11, 0)
+    let t = give_court(s, 1, 0)
+    // put both fleets in one system and attack
+    let sys = 10
+    t[ship_i(sys, 0, 0)] = 6
+    t[ship_i(sys, 1, 0)] = 3
+    let u = do_battle(t, 0, sys, 1, pack_dice(0, 6, 0))
+    assert_eq(court(u, 0), -1)
+    for i in range(1, 5) { assert_eq(court(u, i), i) }
+}
+
+fn test_envoy_taxes_two() {
+    let s = new_game(2, 11, 0)
+    let sys = -1
+    for i in range(0, n_sys()) {
+        for sl in range(0, 2) { if sys < 0 && slot_kind(s, i, sl) == 1 && slot_owner(s, i, sl) == 0 { sys = i } }
+    }
+    let ty = planet_type(sys)
+    let plain = do_tax(s, 0, sys)
+    assert_eq(res(plain, 0, ty), res(s, 0, ty) + 1)
+    let t = give_court(s, 0, court_envoy())
+    let u = do_tax(t, 0, sys)
+    assert_eq(res(u, 0, ty), res(s, 0, ty) + 2)
+    assert_eq(supply(u, ty), supply(s, ty) - 2)
+}
+
+fn test_writ_repairs_everything_in_the_system() {
+    let s = new_game(2, 11, 0)
+    let t = give_court(s, 0, court_writ())
+    t[ship_i(10, 0, 0)] = 1
+    t[ship_i(10, 0, 1)] = 3
+    let u = do_repair(t, 0, 10, 0)
+    assert_eq(fresh(u, 10, 0), 4)
+    assert_eq(damaged(u, 10, 0), 0)
+    // without the Writ, one ship at a time
+    let w = t
+    w[pb(0) + 15] = 0
+    let v = do_repair(w, 0, 10, 0)
+    assert_eq(damaged(v, 10, 0), 2)
+}
+
+fn test_pilgrim_secures_with_psionic() {
+    let s = new_game(3, 11, 0)
+    let t = act_as(s, 0)
+    t[pb(0) + 16] = 4
+    t[pb(0) + 1 + 3] = 0
+    t[pb(0) + 1 + 4] = 1
+    assert(is_legal(t, [15, 2, 4, 0]))
+    assert(!is_legal(t, [15, 2, 0, 0]))
+    let u = apply(t, [15, 2, 4, 0])
+    assert_eq(res(u, 0, 4), 0)
+    assert(has_court(u, 0, 2))
+    t[pb(0) + 16] = 0
+    assert(!is_legal(t, [15, 2, 4, 0]))
+}
+
+fn test_lore_goes_to_the_trailing_player_and_buys_an_action() {
+    let s = new_game(2, 11, 0)
+    let t = s
+    t[pb(0)] = 7
+    t[pb(1)] = 2
+    let u = grant_lore(t)
+    assert_eq(lore(u, 0), 0)
+    assert_eq(lore(u, 1), 1)
+    let level = grant_lore(s)
+    assert_eq(lore(level, 0), 0)
+    let a = act_as(u, 1)
+    a[h_acts()] = 1
+    assert(is_legal(a, [16, 0, 0, 0]))
+    let b = apply(a, [16, 0, 0, 0])
+    assert_eq(acts(b), 2)
+    assert_eq(lore(b, 1), 0)
+    assert(!is_legal(b, [16, 0, 0, 0]))
+}
+
+fn test_accord_scores_at_chapter_end() {
+    let s = new_game(2, 11, 0)
+    let base = s
+    base[pb(0) + 16] = 0
+    base[pb(1) + 16] = 0
+    let t = give_court(base, 0, court_accord())
+    let u = end_chapter(t)
+    let v = end_chapter(base)
+    assert_eq(power(u, 0) - power(v, 0), 1)
+}

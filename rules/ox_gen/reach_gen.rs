@@ -16,6 +16,12 @@ pub fn __ox_fld<'a>(v: &'a DynamicValue, name: &str) -> &'a DynamicValue {
         other => panic!("type error: cannot access field `{}` on {:?}", name, other),
     }
 }
+/// An index as a `usize` that is out of every range when it is negative or too
+/// big for the target: `i as usize` wraps (to 0 for 2^32 on wasm32), so an
+/// out-of-range Int silently addressed an element.
+pub fn __ox_uidx(i: i64) -> usize {
+    if i < 0 || (i as u64) > usize::MAX as u64 { usize::MAX } else { i as usize }
+}
 pub fn __ox_idx<'a>(v: &'a DynamicValue, key: DynamicValue) -> std::borrow::Cow<'a, DynamicValue> {
     match v {
         DynamicValue::Map(entries) => std::borrow::Cow::Borrowed(
@@ -25,10 +31,10 @@ pub fn __ox_idx<'a>(v: &'a DynamicValue, key: DynamicValue) -> std::borrow::Cow<
         ),
         DynamicValue::List(items) | DynamicValue::Tuple(items) => {
             let i = key.as_i64();
-            if i < 0 || i as usize >= items.len() {
+            if __ox_uidx(i) >= items.len() {
                 panic!("index {} out of bounds (len {})", i, items.len());
             }
-            std::borrow::Cow::Borrowed(&items[i as usize])
+            std::borrow::Cow::Borrowed(&items[__ox_uidx(i)])
         }
         other => std::borrow::Cow::Owned(other.index(key.as_i64())),
     }
@@ -46,10 +52,10 @@ pub fn __ox_len(v: &DynamicValue) -> DynamicValue {
 pub fn __ox_vec_index_mut(items: &mut Vec<DynamicValue>, i: DynamicValue) -> &mut DynamicValue {
     let i = i.as_i64();
     let len = items.len();
-    if i < 0 || i as usize >= len {
+    if __ox_uidx(i) >= len {
         panic!("index {} out of bounds (len {})", i, len);
     }
-    &mut items[i as usize]
+    &mut items[__ox_uidx(i)]
 }
 pub fn __ox_index_mut(v: &mut DynamicValue, i: DynamicValue) -> &mut DynamicValue {
     match v {
@@ -498,9 +504,13 @@ impl PartialEq for DynamicValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (DynamicValue::Int(a), DynamicValue::Int(b)) => a == b,
-            (DynamicValue::Float(a), DynamicValue::Float(b)) => (a - b).abs() < 1e-9,
+            // `==` first (infinities: `inf - inf` is NaN), then the tolerance.
+            (DynamicValue::Float(a), DynamicValue::Float(b)) => a == b || (a - b).abs() < 1e-9,
             // `<` already compares Int with Float numerically; `==` must agree.
-            (DynamicValue::Int(a), DynamicValue::Float(b)) | (DynamicValue::Float(b), DynamicValue::Int(a)) => (*a as f64 - b).abs() < 1e-9,
+            (DynamicValue::Int(a), DynamicValue::Float(b)) | (DynamicValue::Float(b), DynamicValue::Int(a)) => {
+                let a = *a as f64;
+                a == *b || (a - b).abs() < 1e-9
+            }
             (DynamicValue::Str(a), DynamicValue::Str(b)) => a == b,
             (DynamicValue::Bool(a), DynamicValue::Bool(b)) => a == b,
             (DynamicValue::List(a), DynamicValue::List(b)) => a == b,
@@ -750,7 +760,7 @@ impl DynamicValue {
     pub fn index(&self, i: i64) -> DynamicValue {
         match self {
             DynamicValue::List(items) | DynamicValue::Tuple(items) => items
-                .get(i as usize)
+                .get(__ox_uidx(i))
                 .cloned()
                 .unwrap_or_else(|| panic!("index {} out of bounds (len {})", i, items.len())),
             DynamicValue::Str(s) => {
@@ -759,10 +769,11 @@ impl DynamicValue {
                 // Only the prefix up to `i` has to be ASCII for byte `i` to be
                 // character `i`.
                 let bytes = s.as_bytes();
-                let found = if i >= 0 && (i as usize) < bytes.len() && bytes[..=i as usize].is_ascii() {
-                    Some(s[i as usize..i as usize + 1].to_string())
+                let u = __ox_uidx(i);
+                let found = if u < bytes.len() && bytes[..=u].is_ascii() {
+                    Some(s[u..u + 1].to_string())
                 } else {
-                    (i >= 0).then(|| i as usize).and_then(|i| s.chars().nth(i)).map(|c| c.to_string())
+                    (u != usize::MAX).then_some(u).and_then(|i| s.chars().nth(i)).map(|c| c.to_string())
                 };
                 found.map(DynamicValue::Str).unwrap_or_else(|| {
                     panic!("index {} out of bounds (len {})", i, s.chars().count())
@@ -1017,8 +1028,8 @@ pub fn push(list: DynamicValue, val: DynamicValue) -> DynamicValue {
 }
 
 pub fn slice(val: DynamicValue, start: DynamicValue, end: DynamicValue) -> DynamicValue {
-    let s = start.as_i64().max(0) as usize;
-    let e = (end.as_i64().max(0) as usize).max(s);
+    let s = __ox_uidx(start.as_i64().max(0));
+    let e = __ox_uidx(end.as_i64().max(0)).max(s);
     match val {
         DynamicValue::Str(str_val) => {
             if str_val.is_ascii() {
@@ -1413,7 +1424,7 @@ pub fn try_index(target: DynamicValue, i: DynamicValue) -> DynamicValue {
         DynamicValue::Str(s) => s.chars().count(),
         other => panic!("type error: try_index() expects a List, Tuple or String, got {:?}", other),
     };
-    if i < 0 || i as usize >= len {
+    if __ox_uidx(i) >= len {
         return __ox_result_err(format!("index {i} out of bounds (len {len})"));
     }
     __ox_result_ok(target.index(i))
@@ -1742,7 +1753,7 @@ fn __ox_pad(s: DynamicValue, width: DynamicValue, pad: DynamicValue, left: bool)
     let s = __ox_str_arg(&s, who);
     let pad: Vec<char> = __ox_str_arg(&pad, who).chars().collect();
     let have = s.chars().count();
-    let want = width.as_i64().max(0) as usize;
+    let want = __ox_uidx(width.as_i64().max(0));
     if have >= want || pad.is_empty() {
         return DynamicValue::Str(s);
     }
@@ -1760,7 +1771,7 @@ pub fn __ox_pad_right(s: DynamicValue, width: DynamicValue, pad: DynamicValue) -
 
 pub fn __ox_repeat(s: DynamicValue, n: DynamicValue) -> DynamicValue {
     let s = __ox_str_arg(&s, "repeat");
-    DynamicValue::Str(s.repeat(n.as_i64().max(0) as usize))
+    DynamicValue::Str(s.repeat(__ox_uidx(n.as_i64().max(0))))
 }
 
 pub fn __ox_format_float(x: DynamicValue, digits: DynamicValue) -> DynamicValue {
@@ -3018,7 +3029,21 @@ pub fn __ox_assert_eq(a: DynamicValue, b: DynamicValue) -> DynamicValue {
     if a != b {
         let (l, r) = (a.to_string(), b.to_string());
         if l == r {
-            panic!("assert_eq failed: left={} ({:?}), right={} ({:?})", l, a, r, b);
+            // Same text, different kinds (`1` and `"1"`): say which is which.
+            let kind = |v: &DynamicValue| match v {
+                DynamicValue::Int(_) => "Int",
+                DynamicValue::Float(_) => "Float",
+                DynamicValue::Str(_) => "String",
+                DynamicValue::Bool(_) => "Bool",
+                DynamicValue::List(_) => "List",
+                DynamicValue::Tuple(_) => "Tuple",
+                DynamicValue::Map(_) => "Map",
+                DynamicValue::Struct(..) => "Struct",
+                DynamicValue::Enum(..) => "Enum",
+                DynamicValue::Function(_) => "Function",
+                DynamicValue::None => "None",
+            };
+            panic!("assert_eq failed: left={} ({}), right={} ({})", l, kind(&a), r, kind(&b));
         }
         panic!("assert_eq failed: left={}, right={}", l, r);
     }
@@ -4554,12 +4579,12 @@ fn __ox_is_float_field(struct_name: &str, field: &str) -> bool {
     }
 }
 
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn setup_count(n: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(4);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn setup_out(n: DynamicValue, i: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if n.clone() == DynamicValue::Int(2) {
@@ -4576,7 +4601,7 @@ pub fn setup_out(n: DynamicValue, i: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::list(vec![]);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn setup_seat(n: DynamicValue, i: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if n.clone() == DynamicValue::Int(2) {
@@ -4593,7 +4618,7 @@ pub fn setup_seat(n: DynamicValue, i: DynamicValue, p: DynamicValue) -> DynamicV
         }
     return DynamicValue::list(vec![]);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn setup_name(n: DynamicValue, i: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if n.clone() == DynamicValue::Int(2) {
@@ -4610,22 +4635,22 @@ pub fn setup_name(n: DynamicValue, i: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::Str("".to_string());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn planet_type(sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::list(vec![DynamicValue::Int(2), DynamicValue::Int(1), DynamicValue::Int(0), -DynamicValue::Int(1), DynamicValue::Int(4), DynamicValue::Int(2), DynamicValue::Int(3), -DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(2), -DynamicValue::Int(1), DynamicValue::Int(3), DynamicValue::Int(1), DynamicValue::Int(0), -DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(3), DynamicValue::Int(4), -DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(4), -DynamicValue::Int(1)]).index_any(sys);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn planet_slots(sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::list(vec![DynamicValue::Int(2), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(0), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(1), DynamicValue::Int(0)]).index_any(sys);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn card_pips(suit: DynamicValue, number: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::list(vec![DynamicValue::list(vec![DynamicValue::Int(4), DynamicValue::Int(4), DynamicValue::Int(3), DynamicValue::Int(3), DynamicValue::Int(3), DynamicValue::Int(2), DynamicValue::Int(1)]), DynamicValue::list(vec![DynamicValue::Int(3), DynamicValue::Int(3), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(1)]), DynamicValue::list(vec![DynamicValue::Int(4), DynamicValue::Int(4), DynamicValue::Int(3), DynamicValue::Int(3), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(1)]), DynamicValue::list(vec![DynamicValue::Int(4), DynamicValue::Int(4), DynamicValue::Int(3), DynamicValue::Int(3), DynamicValue::Int(2), DynamicValue::Int(2), DynamicValue::Int(1)])]).index_any(suit).index_any(number - DynamicValue::Int(1));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn die_face(kind: DynamicValue, roll: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if kind.clone() == DynamicValue::Int(0) {
@@ -4638,313 +4663,383 @@ pub fn die_face(kind: DynamicValue, roll: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::list(vec![DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(2)]), DynamicValue::list(vec![DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(1)]), DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0)]), DynamicValue::list(vec![DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(0)]), DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(1)]), DynamicValue::list(vec![DynamicValue::Int(1), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(1), DynamicValue::Int(0)])]).index_any(roll.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn marker_values(rank: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::list(vec![DynamicValue::list(vec![DynamicValue::Int(5), DynamicValue::Int(3)]), DynamicValue::list(vec![DynamicValue::Int(3), DynamicValue::Int(2)]), DynamicValue::list(vec![DynamicValue::Int(2), DynamicValue::Int(0)])]).index_any(rank);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn power_goal(n: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::list(vec![DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(33), DynamicValue::Int(30), DynamicValue::Int(27)]).index_any(n);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn n_sys() -> i64 {
     __ox_stack_check();
     return 24i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_n() -> i64 {
     __ox_stack_check();
     return 0i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_chapter() -> i64 {
     __ox_stack_check();
     return 1i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_phase() -> i64 {
     __ox_stack_check();
     return 2i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_cur() -> i64 {
     __ox_stack_check();
     return 3i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_init() -> i64 {
     __ox_stack_check();
     return 4i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_rng() -> i64 {
     __ox_stack_check();
     return 5i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_lead_suit() -> i64 {
     __ox_stack_check();
     return 6i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_best_num() -> i64 {
     __ox_stack_check();
     return 7i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_best_player() -> i64 {
     __ox_stack_check();
     return 8i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_seized() -> i64 {
     __ox_stack_check();
     return 9i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_turns() -> i64 {
     __ox_stack_check();
     return 10i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_acts() -> i64 {
     __ox_stack_check();
     return 11i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_act_suit() -> i64 {
     __ox_stack_check();
     return 12i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_x_build() -> i64 {
     __ox_stack_check();
     return 14i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_x_move() -> i64 {
     __ox_stack_check();
     return 15i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_x_battle() -> i64 {
     __ox_stack_check();
     return 16i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_x_lead() -> i64 {
     __ox_stack_check();
     return 17i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_acted() -> i64 {
     __ox_stack_check();
     return 18i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_lore_used() -> i64 {
+    __ox_stack_check();
+    return 21i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn h_spill() -> i64 {
+    __ox_stack_check();
+    return 29i64;
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_out() -> i64 {
     __ox_stack_check();
     return 20i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_amb() -> i64 {
     __ox_stack_check();
     return 22i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_amb_count() -> i64 {
     __ox_stack_check();
     return 27i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_court() -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(35);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn h_ev() -> i64 {
     __ox_stack_check();
     return 30i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn p_base() -> i64 {
     __ox_stack_check();
     return 40i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn p_stride() -> i64 {
     __ox_stack_check();
     return 20i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn ships_base() -> i64 {
     __ox_stack_check();
     return 120i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn slots_base() -> i64 {
     __ox_stack_check();
     return 312i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn supply_base() -> i64 {
     __ox_stack_check();
     return 456i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn state_len() -> i64 {
     __ox_stack_check();
     return 461i64;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn pb(p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(p_base() as i64) + (DynamicValue::Int(p_stride() as i64) * p);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn power(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn res(s: DynamicValue, p: DynamicValue, t: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, (pb(p) + DynamicValue::Int(1)) + t).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn cities_left(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(6)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn ports_left(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(7)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn reserve(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(8)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn trophies(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(9)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn captives(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(10)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn hand(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(11)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn secured(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, pb(p) + DynamicValue::Int(15)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn leader(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, pb(p) + DynamicValue::Int(16)).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn lore(s: DynamicValue, p: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return __ox_idx(&s, pb(p) + DynamicValue::Int(17)).into_owned();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn lore_cap() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(3);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn has_court(s: DynamicValue, p: DynamicValue, c: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return has_card(secured(s, p), c);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_envoy() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(0);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_seal() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(1);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_writ() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(2);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_pact() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(3);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_accord() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(4);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn n_leaders() -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Int(6);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn leader_res(l: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::list(vec![DynamicValue::Int(1), DynamicValue::Int(2), DynamicValue::Int(0), DynamicValue::Int(4), DynamicValue::Int(3), DynamicValue::Int(1)]).index_any(l);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn is_leader(s: DynamicValue, p: DynamicValue, l: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    return DynamicValue::Bool(leader(s, p) == l);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn outraged(s: DynamicValue, p: DynamicValue, t: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(((__ox_idx(&s, pb(p) + DynamicValue::Int(13)).into_owned() / pow2(t)) % DynamicValue::Int(2)) == DynamicValue::Int(1));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn court(s: DynamicValue, i: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, h_court() + i).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn court_value(c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(1);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn court_cost() -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Int(1);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn supply(s: DynamicValue, t: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(supply_base() as i64) + t).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn phase(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(h_phase() as i64)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn cur(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(h_cur() as i64)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn nplayers(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(h_n() as i64)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn chapter(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(h_chapter() as i64)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn acts(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, DynamicValue::Int(h_acts() as i64)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn ship_i(sys: DynamicValue, p: DynamicValue, d: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return ((DynamicValue::Int(ships_base() as i64) + (sys * DynamicValue::Int(8))) + (p * DynamicValue::Int(2))) + d;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn fresh(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, ship_i(sys, p, DynamicValue::Int(0))).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn damaged(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, ship_i(sys, p, DynamicValue::Int(1))).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn all_ships(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return fresh(s.clone(), sys.clone(), p.clone()) + damaged(s.clone(), sys.clone(), p.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn slot_i(sys: DynamicValue, sl: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return (DynamicValue::Int(slots_base() as i64) + (sys * DynamicValue::Int(6))) + (sl * DynamicValue::Int(3));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn slot_owner(s: DynamicValue, sys: DynamicValue, sl: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, slot_i(sys, sl)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn slot_kind(s: DynamicValue, sys: DynamicValue, sl: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, slot_i(sys, sl) + DynamicValue::Int(1)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn slot_dmg(s: DynamicValue, sys: DynamicValue, sl: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return __ox_idx(&s, slot_i(sys, sl) + DynamicValue::Int(2)).into_owned();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn pow2(n: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut r = DynamicValue::Int(1);
     let mut i = DynamicValue::Int(0);
     while i.clone() < n.clone() {
-        r = r.clone() * DynamicValue::Int(2);
+        r = r * DynamicValue::Int(2);
         {
             let __ox_rhs = DynamicValue::Int(1);
             if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut i, &__ox_rhs) {
@@ -4957,22 +5052,22 @@ pub fn pow2(n: DynamicValue) -> DynamicValue {
     }
     return r.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn card_suit(c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return c / DynamicValue::Int(7);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn card_num(c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return (c % DynamicValue::Int(7)) + DynamicValue::Int(1);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn has_card(mask: DynamicValue, c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(((mask / pow2(c)) % DynamicValue::Int(2)) == DynamicValue::Int(1));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn min_i(a: DynamicValue, b: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if a.clone() < b.clone() {
@@ -4981,7 +5076,7 @@ pub fn min_i(a: DynamicValue, b: DynamicValue) -> DynamicValue {
         }
     return b.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn max_i(a: DynamicValue, b: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if a.clone() > b.clone() {
@@ -4990,43 +5085,43 @@ pub fn max_i(a: DynamicValue, b: DynamicValue) -> DynamicValue {
         }
     return b.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn cluster_of(sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return sys / DynamicValue::Int(4);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn kind_of(sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return sys % DynamicValue::Int(4);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn is_gate(sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool((sys % DynamicValue::Int(4)) == DynamicValue::Int(3));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn gate_of(c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return (c * DynamicValue::Int(4)) + DynamicValue::Int(3);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn cluster_out(s: DynamicValue, c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(((__ox_idx(&s, DynamicValue::Int(h_out() as i64)).into_owned() / pow2(c)) % DynamicValue::Int(2)) == DynamicValue::Int(1));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn in_play(s: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(!((cluster_out(s, cluster_of(sys))).is_truthy()));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn next_cluster(s: DynamicValue, c: DynamicValue, dir: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut k = ((c + dir.clone()) + DynamicValue::Int(6)) % DynamicValue::Int(6);
     let mut guard = DynamicValue::Int(0);
     while (cluster_out(s.clone(), k.clone())).is_truthy() && (guard.clone() < DynamicValue::Int(6)) {
-        k = ((k.clone() + dir.clone()) + DynamicValue::Int(6)) % DynamicValue::Int(6);
+        k = ((k + dir.clone()) + DynamicValue::Int(6)) % DynamicValue::Int(6);
         {
             let __ox_rhs = DynamicValue::Int(1);
             if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut guard, &__ox_rhs) {
@@ -5039,7 +5134,7 @@ pub fn next_cluster(s: DynamicValue, c: DynamicValue, dir: DynamicValue) -> Dyna
     }
     return k.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn adjacent(s: DynamicValue, a: DynamicValue, b: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if a.clone() == b.clone() {
@@ -5076,7 +5171,7 @@ pub fn adjacent(s: DynamicValue, a: DynamicValue, b: DynamicValue) -> DynamicVal
         }
     return DynamicValue::Bool(false);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn neighbors(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut out = DynamicValue::list(vec![]);
@@ -5094,7 +5189,7 @@ pub fn neighbors(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn count_buildings(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut c = DynamicValue::Int(0);
@@ -5114,7 +5209,7 @@ pub fn count_buildings(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> D
     }
     return c.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn buildings_anywhere(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut c = DynamicValue::Int(0);
@@ -5131,7 +5226,7 @@ pub fn buildings_anywhere(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     }
     return c.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn count_kind(s: DynamicValue, sys: DynamicValue, p: DynamicValue, kind: DynamicValue, dmg: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut c = DynamicValue::Int(0);
@@ -5151,12 +5246,12 @@ pub fn count_kind(s: DynamicValue, sys: DynamicValue, p: DynamicValue, kind: Dyn
     }
     return c.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn has_piece(s: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool((all_ships(s.clone(), sys.clone(), p.clone()) > DynamicValue::Int(0)) || (count_buildings(s.clone(), sys.clone(), p.clone()) > DynamicValue::Int(0)));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn controller(s: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut best = -DynamicValue::Int(1);
@@ -5181,7 +5276,7 @@ pub fn controller(s: DynamicValue, sys: DynamicValue) -> DynamicValue {
         }
     return best;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn free_slot(s: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     for sl in (range(DynamicValue::Int(0), planet_slots(sys.clone()))).into_list() {
@@ -5192,7 +5287,7 @@ pub fn free_slot(s: DynamicValue, sys: DynamicValue) -> DynamicValue {
     }
     return -DynamicValue::Int(1);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn total_resources(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut c = DynamicValue::Int(0);
@@ -5209,17 +5304,17 @@ pub fn total_resources(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     }
     return c.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn rng_step(r: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return ((r * DynamicValue::Int(1103515245)) + DynamicValue::Int(12345)) % DynamicValue::Int(2147483648);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn rng_val(r: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return r / DynamicValue::Int(65536);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn draw(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s.clone();
@@ -5230,12 +5325,12 @@ pub fn draw(s: DynamicValue) -> DynamicValue {
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn roll_d6(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return rng_val(__ox_idx(&s, DynamicValue::Int(h_rng() as i64)).into_owned()) % DynamicValue::Int(6);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn new_game(n: DynamicValue, seed: DynamicValue, setup_idx: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut s = DynamicValue::list(vec![]);
@@ -5410,10 +5505,66 @@ pub fn new_game(n: DynamicValue, seed: DynamicValue, setup_idx: DynamicValue) ->
             }
         }
     }
-    s = shuffle_init(s.clone());
+    s = deal_leaders(s);
+    s = shuffle_init(s);
     return deal_chapter(s.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn deal_leaders(s: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut t = s;
+    let mut ids = DynamicValue::list(vec![]);
+    for l in (range(DynamicValue::Int(0), n_leaders())).into_list() {
+        {
+            let __ox_item = l.clone();
+            match &mut ids {
+                DynamicValue::List(items) => items.push(__ox_item),
+                other => panic!("type error: push() expects a List, got {:?}", other),
+            }
+        }
+    }
+    let mut i = __ox_len(&ids) - DynamicValue::Int(1);
+    while i.clone() > DynamicValue::Int(0) {
+        t = draw(t);
+        let j = rng_val(__ox_idx(&t, DynamicValue::Int(h_rng() as i64)).into_owned()) % (i.clone() + DynamicValue::Int(1));
+        let tmp = __ox_idx(&ids, i.clone()).into_owned();
+        {
+            let __ox_tmp = __ox_idx(&ids, j.clone()).into_owned();
+            let __ox_ix0 = i.clone();
+            *__ox_index_mut(&mut ids, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = tmp.clone();
+            let __ox_ix0 = j.clone();
+            *__ox_index_mut(&mut ids, __ox_ix0) = __ox_tmp;
+        }
+        i = i - DynamicValue::Int(1);
+    }
+    for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+        let l = __ox_idx(&ids, p.clone()).into_owned();
+        {
+            let __ox_tmp = l.clone();
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(16);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        let r = leader_res(l.clone());
+        if supply(t.clone(), r.clone()) > DynamicValue::Int(0) {
+            {
+                let __ox_tmp = res(t.clone(), p.clone(), r.clone()) + DynamicValue::Int(1);
+                let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + r.clone();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            {
+                let __ox_tmp = supply(t.clone(), r.clone()) - DynamicValue::Int(1);
+                let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + r.clone();
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            } else {
+            }
+    }
+    return t.clone();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn shuffle_init(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = draw(s);
@@ -5424,7 +5575,7 @@ pub fn shuffle_init(s: DynamicValue) -> DynamicValue {
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn deck_size(n: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if n == DynamicValue::Int(4) {
@@ -5433,7 +5584,7 @@ pub fn deck_size(n: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::Int(20);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn deal_chapter(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
@@ -5453,7 +5604,7 @@ pub fn deal_chapter(s: DynamicValue) -> DynamicValue {
     }
     let mut i = __ox_len(&ids) - DynamicValue::Int(1);
     while i.clone() > DynamicValue::Int(0) {
-        t = draw(t.clone());
+        t = draw(t);
         let j = rng_val(__ox_idx(&t, DynamicValue::Int(h_rng() as i64)).into_owned()) % (i.clone() + DynamicValue::Int(1));
         let tmp = __ox_idx(&ids, i.clone()).into_owned();
         {
@@ -5466,7 +5617,7 @@ pub fn deal_chapter(s: DynamicValue) -> DynamicValue {
             let __ox_ix0 = j.clone();
             *__ox_index_mut(&mut ids, __ox_ix0) = __ox_tmp;
         }
-        i = i.clone() - DynamicValue::Int(1);
+        i = i - DynamicValue::Int(1);
     }
     let mut k = DynamicValue::Int(0);
     for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
@@ -5509,7 +5660,7 @@ pub fn deal_chapter(s: DynamicValue) -> DynamicValue {
     }
     return start_round(t.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn start_round(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
@@ -5580,7 +5731,7 @@ pub fn start_round(s: DynamicValue) -> DynamicValue {
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn cards_in_hand(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut out = DynamicValue::list(vec![]);
@@ -5599,12 +5750,12 @@ pub fn cards_in_hand(s: DynamicValue, p: DynamicValue) -> DynamicValue {
     }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn amb_declared(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(__ox_idx(&s, DynamicValue::Int(h_amb() as i64) + a).into_owned() > DynamicValue::Int(0));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn ambition_options(s: DynamicValue, num: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut out = DynamicValue::list(vec![-DynamicValue::Int(1)]);
@@ -5642,7 +5793,7 @@ pub fn ambition_options(s: DynamicValue, num: DynamicValue) -> DynamicValue {
         }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn suit_allows(suit: DynamicValue, kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if suit.clone() == DynamicValue::Int(0) {
@@ -5659,7 +5810,7 @@ pub fn suit_allows(suit: DynamicValue, kind: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::Bool(kind.clone() == DynamicValue::Int(12));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn kind_group(kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if (((kind.clone() == DynamicValue::Int(9)) || (kind.clone() == DynamicValue::Int(10))) || (kind.clone() == DynamicValue::Int(11))) || (kind.clone() == DynamicValue::Int(13)) {
@@ -5676,7 +5827,7 @@ pub fn kind_group(kind: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::Int(3);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn source_for(s: DynamicValue, kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if (acts(s.clone()) > DynamicValue::Int(0)) && (suit_allows(__ox_idx(&s, DynamicValue::Int(h_act_suit() as i64)).into_owned(), kind.clone())).is_truthy() {
@@ -5702,12 +5853,12 @@ pub fn source_for(s: DynamicValue, kind: DynamicValue) -> DynamicValue {
         }
     return DynamicValue::Int(0);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn can_spend(s: DynamicValue, p: DynamicValue, t: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool((res(s.clone(), p.clone(), t.clone()) > DynamicValue::Int(0)) && !((outraged(s.clone(), p.clone(), t.clone())).is_truthy()));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn legal_actions(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut out = DynamicValue::list(vec![]);
@@ -5802,17 +5953,40 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
                             } else {
                             }
                         for i in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
-                            if (court(s.clone(), i.clone()) >= DynamicValue::Int(0)) && (can_spend(s.clone(), p.clone(), DynamicValue::Int(3))).is_truthy() {
-                                {
-                                    let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
-                                    match &mut out {
-                                        DynamicValue::List(items) => items.push(__ox_item),
-                                        other => panic!("type error: push() expects a List, got {:?}", other),
+                            if court(s.clone(), i.clone()) >= DynamicValue::Int(0) {
+                                if (court_pay_ok(s.clone(), p.clone(), DynamicValue::Int(3))).is_truthy() {
+                                    {
+                                        let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(0), DynamicValue::Int(0)]);
+                                        match &mut out {
+                                            DynamicValue::List(items) => items.push(__ox_item),
+                                            other => panic!("type error: push() expects a List, got {:?}", other),
+                                        }
                                     }
-                                }
+                                    } else {
+                                    }
+                                if (court_pay_ok(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy() {
+                                    {
+                                        let __ox_item = DynamicValue::list(vec![DynamicValue::Int(15), i.clone(), DynamicValue::Int(4), DynamicValue::Int(0)]);
+                                        match &mut out {
+                                            DynamicValue::List(items) => items.push(__ox_item),
+                                            other => panic!("type error: push() expects a List, got {:?}", other),
+                                        }
+                                    }
+                                    } else {
+                                    }
                                 } else {
                                 }
                         }
+                        if (lore(s.clone(), p.clone()) > DynamicValue::Int(0)) && (__ox_idx(&s, DynamicValue::Int(h_lore_used() as i64)).into_owned() == DynamicValue::Int(0)) {
+                            {
+                                let __ox_item = DynamicValue::list(vec![DynamicValue::Int(16), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0)]);
+                                match &mut out {
+                                    DynamicValue::List(items) => items.push(__ox_item),
+                                    other => panic!("type error: push() expects a List, got {:?}", other),
+                                }
+                            }
+                            } else {
+                            }
                         for x in (action_list(s.clone())).into_list() {
                             {
                                 let __ox_item = x.clone();
@@ -5835,7 +6009,7 @@ pub fn legal_actions(s: DynamicValue) -> DynamicValue {
         }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn action_list(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let p = cur(s.clone());
@@ -5986,7 +6160,7 @@ pub fn action_list(s: DynamicValue) -> DynamicValue {
         }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn move_targets(s: DynamicValue, from: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let catapult = DynamicValue::Bool(count_kind(s.clone(), from.clone(), p, DynamicValue::Int(2), DynamicValue::Int(0)) > DynamicValue::Int(0));
@@ -6043,12 +6217,12 @@ pub fn move_targets(s: DynamicValue, from: DynamicValue, p: DynamicValue) -> Dyn
     }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn pack_dice(a: DynamicValue, k: DynamicValue, r: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return ((a * DynamicValue::Int(49)) + (k * DynamicValue::Int(7))) + r;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn battle_options(s: DynamicValue, sys: DynamicValue, e: DynamicValue, ships: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut out = DynamicValue::list(vec![]);
@@ -6074,12 +6248,12 @@ pub fn battle_options(s: DynamicValue, sys: DynamicValue, e: DynamicValue, ships
     }
     return out.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn same_action(a: DynamicValue, b: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool((((__ox_idx(&a, DynamicValue::Int(0)).into_owned() == __ox_idx(&b, DynamicValue::Int(0)).into_owned()) && (__ox_idx(&a, DynamicValue::Int(1)).into_owned() == __ox_idx(&b, DynamicValue::Int(1)).into_owned())) && (__ox_idx(&a, DynamicValue::Int(2)).into_owned() == __ox_idx(&b, DynamicValue::Int(2)).into_owned())) && (__ox_idx(&a, DynamicValue::Int(3)).into_owned() == __ox_idx(&b, DynamicValue::Int(3)).into_owned()));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn is_legal(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     for x in (legal_actions(s)).into_list() {
@@ -6090,7 +6264,7 @@ pub fn is_legal(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     }
     return DynamicValue::Bool(false);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn set_event(mut t: DynamicValue, kind: DynamicValue, a: DynamicValue, b: DynamicValue, c: DynamicValue, d: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     {
@@ -6120,7 +6294,7 @@ pub fn set_event(mut t: DynamicValue, kind: DynamicValue, a: DynamicValue, b: Dy
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn remove_card(mut t: DynamicValue, p: DynamicValue, c: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     {
@@ -6135,7 +6309,7 @@ pub fn remove_card(mut t: DynamicValue, p: DynamicValue, c: DynamicValue) -> Dyn
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn begin_actions(mut t: DynamicValue, suit: DynamicValue, pips: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     {
@@ -6158,9 +6332,27 @@ pub fn begin_actions(mut t: DynamicValue, suit: DynamicValue, pips: DynamicValue
         let __ox_ix0 = DynamicValue::Int(h_acted() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
+    {
+        let __ox_tmp = DynamicValue::Int(0);
+        let __ox_ix0 = DynamicValue::Int(h_lore_used() as i64);
+        *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+    }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn court_pay_ok(s: DynamicValue, p: DynamicValue, r: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    if r.clone() == DynamicValue::Int(3) {
+        return can_spend(s.clone(), p.clone(), DynamicValue::Int(3));
+        } else {
+        }
+    if r.clone() == DynamicValue::Int(4) {
+        return DynamicValue::Bool((is_leader(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy() && (can_spend(s.clone(), p.clone(), DynamicValue::Int(4))).is_truthy());
+        } else {
+        }
+    return DynamicValue::Bool(false);
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s.clone();
@@ -6168,7 +6360,7 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     let kind = __ox_idx(&a, DynamicValue::Int(0)).into_owned();
     if kind.clone() == DynamicValue::Int(0) {
         let c = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
-        t = remove_card(t.clone(), p.clone(), c.clone());
+        t = remove_card(t, p.clone(), c.clone());
         {
             let __ox_tmp = card_suit(c.clone());
             let __ox_ix0 = DynamicValue::Int(h_lead_suit() as i64);
@@ -6202,14 +6394,14 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             }
             } else {
             }
-        t = set_event(t.clone(), DynamicValue::Int(0), p.clone(), c.clone(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), DynamicValue::Int(0));
-        t = begin_actions(t.clone(), card_suit(c.clone()), card_pips(card_suit(c.clone()), card_num(c.clone())));
+        t = set_event(t, DynamicValue::Int(0), p.clone(), c.clone(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), DynamicValue::Int(0));
+        t = begin_actions(t, card_suit(c.clone()), card_pips(card_suit(c.clone()), card_num(c.clone())));
         return settle(t.clone());
         } else {
         }
     if ((kind.clone() == DynamicValue::Int(1)) || (kind.clone() == DynamicValue::Int(2))) || (kind.clone() == DynamicValue::Int(3)) {
         let c = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
-        t = remove_card(t.clone(), p.clone(), c.clone());
+        t = remove_card(t, p.clone(), c.clone());
         {
             let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_turns() as i64)).into_owned() + DynamicValue::Int(1);
             let __ox_ix0 = DynamicValue::Int(h_turns() as i64);
@@ -6234,20 +6426,20 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
                 }
                 } else {
                 }
-            t = begin_actions(t.clone(), __ox_idx(&s, DynamicValue::Int(h_lead_suit() as i64)).into_owned(), card_pips(card_suit(c.clone()), card_num(c.clone())));
+            t = begin_actions(t, __ox_idx(&s, DynamicValue::Int(h_lead_suit() as i64)).into_owned(), card_pips(card_suit(c.clone()), card_num(c.clone())));
             } else {
                 if kind.clone() == DynamicValue::Int(2) {
-                    t = begin_actions(t.clone(), __ox_idx(&s, DynamicValue::Int(h_lead_suit() as i64)).into_owned(), DynamicValue::Int(1));
+                    t = begin_actions(t, __ox_idx(&s, DynamicValue::Int(h_lead_suit() as i64)).into_owned(), DynamicValue::Int(1));
                     } else {
-                        t = begin_actions(t.clone(), card_suit(c.clone()), DynamicValue::Int(1));
+                        t = begin_actions(t, card_suit(c.clone()), DynamicValue::Int(1));
                     }
             }
-        t = set_event(t.clone(), kind.clone(), p.clone(), c.clone(), DynamicValue::Int(0), DynamicValue::Int(0));
+        t = set_event(t, kind.clone(), p.clone(), c.clone(), DynamicValue::Int(0), DynamicValue::Int(0));
         return settle(t.clone());
         } else {
         }
     if kind.clone() == DynamicValue::Int(5) {
-        t = remove_card(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
+        t = remove_card(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
         {
             let __ox_tmp = p.clone();
             let __ox_ix0 = DynamicValue::Int(h_seized() as i64);
@@ -6257,7 +6449,7 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         } else {
         }
     if kind.clone() == DynamicValue::Int(4) {
-        t = set_event(t.clone(), DynamicValue::Int(4), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
+        t = set_event(t, DynamicValue::Int(4), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
         if phase(s.clone()) == DynamicValue::Int(0) {
             return end_chapter(t.clone());
             } else {
@@ -6271,7 +6463,7 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         } else {
         }
     if kind.clone() == DynamicValue::Int(6) {
-        let r = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
+        let mut r = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
         {
             let __ox_tmp = res(s.clone(), p.clone(), r.clone()) - DynamicValue::Int(1);
             let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + r.clone();
@@ -6343,14 +6535,19 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             let __ox_ix0 = DynamicValue::Int(h_x_lead() as i64);
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
-        t = set_event(t.clone(), DynamicValue::Int(7), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
+        t = set_event(t, DynamicValue::Int(7), p.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
         return advance_turn(t.clone());
         } else {
         }
     if kind.clone() == DynamicValue::Int(15) {
         let i = __ox_idx(&a, DynamicValue::Int(1)).into_owned();
         let c = __ox_idx(&s, h_court() + i.clone()).into_owned();
-        if (c.clone() < DynamicValue::Int(0)) || !((can_spend(s.clone(), p.clone(), DynamicValue::Int(3))).is_truthy()) {
+        let mut r = DynamicValue::Int(3);
+        if __ox_idx(&a, DynamicValue::Int(2)).into_owned() == DynamicValue::Int(4) {
+            r = DynamicValue::Int(4);
+            } else {
+            }
+        if (c.clone() < DynamicValue::Int(0)) || !((court_pay_ok(s.clone(), p.clone(), r.clone())).is_truthy()) {
             return t.clone();
             } else {
             }
@@ -6360,13 +6557,13 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
         {
-            let __ox_tmp = res(s.clone(), p.clone(), DynamicValue::Int(3)) - court_cost();
-            let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + DynamicValue::Int(3);
+            let __ox_tmp = res(s.clone(), p.clone(), r.clone()) - court_cost();
+            let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + r.clone();
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
         {
-            let __ox_tmp = supply(s.clone(), DynamicValue::Int(3)) + court_cost();
-            let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + DynamicValue::Int(3);
+            let __ox_tmp = supply(s.clone(), r.clone()) + court_cost();
+            let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + r.clone();
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
         {
@@ -6380,6 +6577,29 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
         }
         return set_event(t.clone(), DynamicValue::Int(15), p.clone(), i.clone(), c.clone(), DynamicValue::Int(0));
+        } else {
+        }
+    if kind.clone() == DynamicValue::Int(16) {
+        if (lore(s.clone(), p.clone()) <= DynamicValue::Int(0)) || (__ox_idx(&s, DynamicValue::Int(h_lore_used() as i64)).into_owned() == DynamicValue::Int(1)) {
+            return t.clone();
+            } else {
+            }
+        {
+            let __ox_tmp = lore(s.clone(), p.clone()) - DynamicValue::Int(1);
+            let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(17);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = __ox_idx(&s, DynamicValue::Int(h_acts() as i64)).into_owned() + DynamicValue::Int(1);
+            let __ox_ix0 = DynamicValue::Int(h_acts() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = DynamicValue::Int(1);
+            let __ox_ix0 = DynamicValue::Int(h_lore_used() as i64);
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        return set_event(t.clone(), DynamicValue::Int(16), p.clone(), lore(t.clone(), p.clone()), DynamicValue::Int(0), DynamicValue::Int(0));
         } else {
         }
     let src = source_for(s.clone(), kind.clone());
@@ -6427,22 +6647,22 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     if kind.clone() == DynamicValue::Int(8) {
-        t = do_tax(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
+        t = do_tax(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
         } else {
             if (kind.clone() == DynamicValue::Int(9)) || (kind.clone() == DynamicValue::Int(10)) {
-                t = do_build_building(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), kind.clone());
+                t = do_build_building(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), kind.clone());
                 } else {
                     if kind.clone() == DynamicValue::Int(11) {
-                        t = do_build_ships(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
+                        t = do_build_ships(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned());
                         } else {
                             if kind.clone() == DynamicValue::Int(12) {
-                                t = do_move(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
+                                t = do_move(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
                                 } else {
                                     if kind.clone() == DynamicValue::Int(13) {
-                                        t = do_repair(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned());
+                                        t = do_repair(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned());
                                         } else {
                                             if kind.clone() == DynamicValue::Int(14) {
-                                                t = do_battle(t.clone(), p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
+                                                t = do_battle(t, p.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), __ox_idx(&a, DynamicValue::Int(2)).into_owned(), __ox_idx(&a, DynamicValue::Int(3)).into_owned());
                                                 } else {
                                                 }
                                         }
@@ -6452,33 +6672,42 @@ pub fn apply(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         }
     return settle(t.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_tax(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let ty = planet_type(sys.clone());
+    let mut n = DynamicValue::Int(1);
+    if (has_court(t.clone(), p.clone(), court_envoy())).is_truthy() && (supply(t.clone(), ty.clone()) >= DynamicValue::Int(2)) {
+        n = DynamicValue::Int(2);
+        } else {
+        }
     {
-        let __ox_tmp = res(t.clone(), p.clone(), ty.clone()) + DynamicValue::Int(1);
+        let __ox_tmp = res(t.clone(), p.clone(), ty.clone()) + n.clone();
         let __ox_ix0 = (pb(p.clone()) + DynamicValue::Int(1)) + ty.clone();
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     {
-        let __ox_tmp = supply(t.clone(), ty.clone()) - DynamicValue::Int(1);
+        let __ox_tmp = supply(t.clone(), ty.clone()) - n.clone();
         let __ox_ix0 = DynamicValue::Int(supply_base() as i64) + ty.clone();
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
-    return set_event(t.clone(), DynamicValue::Int(8), p.clone(), sys.clone(), ty.clone(), DynamicValue::Int(0));
+    return set_event(t.clone(), DynamicValue::Int(8), p.clone(), sys.clone(), ty.clone(), n.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn build_dmg(t: DynamicValue, sys: DynamicValue, p: DynamicValue) -> DynamicValue {
     __ox_stack_check();
-    let c = controller(t, sys);
-    if (c.clone() >= DynamicValue::Int(0)) && (c.clone() != p) {
+    if (is_leader(t.clone(), p.clone(), DynamicValue::Int(2))).is_truthy() {
+        return DynamicValue::Int(0);
+        } else {
+        }
+    let c = controller(t.clone(), sys);
+    if (c.clone() >= DynamicValue::Int(0)) && (c.clone() != p.clone()) {
         return DynamicValue::Int(1);
         } else {
         }
     return DynamicValue::Int(0);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_build_building(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue, sl: DynamicValue, kind: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let d = build_dmg(t.clone(), sys.clone(), p.clone());
@@ -6512,11 +6741,24 @@ pub fn do_build_building(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue
         }
     return set_event(t.clone(), DynamicValue::Int(9), p.clone(), sys.clone(), kind.clone() - DynamicValue::Int(8), d.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_build_ships(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let d = build_dmg(t.clone(), sys.clone(), p.clone());
-    let n = min_i(count_kind(t.clone(), sys.clone(), p.clone(), DynamicValue::Int(2), DynamicValue::Int(0)), reserve(t.clone(), p.clone()));
+    let mut want = count_kind(t.clone(), sys.clone(), p.clone(), DynamicValue::Int(2), DynamicValue::Int(0));
+    if (is_leader(t.clone(), p.clone(), DynamicValue::Int(0))).is_truthy() {
+        {
+            let __ox_rhs = DynamicValue::Int(1);
+            if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut want, &__ox_rhs) {
+                __ox_a.push_str(__ox_b);
+            } else {
+                let __ox_l = std::mem::replace(&mut want, DynamicValue::None);
+                want = __ox_l + __ox_rhs;
+            }
+        }
+        } else {
+        }
+    let n = min_i(want.clone(), reserve(t.clone(), p.clone()));
     {
         let __ox_tmp = __ox_idx(&t, ship_i(sys.clone(), p.clone(), d.clone())).into_owned() + n.clone();
         let __ox_ix0 = ship_i(sys.clone(), p.clone(), d.clone());
@@ -6529,7 +6771,7 @@ pub fn do_build_ships(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue) -
     }
     return set_event(t.clone(), DynamicValue::Int(11), p.clone(), sys.clone(), n.clone(), d.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_move(mut t: DynamicValue, p: DynamicValue, from: DynamicValue, to: DynamicValue, cnt: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let f = fresh(t.clone(), from.clone(), p.clone());
@@ -6557,9 +6799,33 @@ pub fn do_move(mut t: DynamicValue, p: DynamicValue, from: DynamicValue, to: Dyn
     }
     return set_event(t.clone(), DynamicValue::Int(12), p.clone(), from.clone(), to.clone(), cnt.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_repair(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue, what: DynamicValue) -> DynamicValue {
     __ox_stack_check();
+    if (has_court(t.clone(), p.clone(), court_writ())).is_truthy() {
+        {
+            let __ox_tmp = fresh(t.clone(), sys.clone(), p.clone()) + damaged(t.clone(), sys.clone(), p.clone());
+            let __ox_ix0 = ship_i(sys.clone(), p.clone(), DynamicValue::Int(0));
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        {
+            let __ox_tmp = DynamicValue::Int(0);
+            let __ox_ix0 = ship_i(sys.clone(), p.clone(), DynamicValue::Int(1));
+            *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+        }
+        for sl in (range(DynamicValue::Int(0), DynamicValue::Int(2))).into_list() {
+            if (slot_kind(t.clone(), sys.clone(), sl.clone()) != DynamicValue::Int(0)) && (slot_owner(t.clone(), sys.clone(), sl.clone()) == p.clone()) {
+                {
+                    let __ox_tmp = DynamicValue::Int(0);
+                    let __ox_ix0 = slot_i(sys.clone(), sl.clone()) + DynamicValue::Int(2);
+                    *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+                }
+                } else {
+                }
+        }
+        return set_event(t.clone(), DynamicValue::Int(13), p.clone(), sys.clone(), what.clone(), DynamicValue::Int(1));
+        } else {
+        }
     if what.clone() == DynamicValue::Int(0) {
         {
             let __ox_tmp = damaged(t.clone(), sys.clone(), p.clone()) - DynamicValue::Int(1);
@@ -6580,7 +6846,7 @@ pub fn do_repair(mut t: DynamicValue, p: DynamicValue, sys: DynamicValue, what: 
         }
     return set_event(t.clone(), DynamicValue::Int(13), p.clone(), sys.clone(), what.clone(), DynamicValue::Int(0));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn hit_ships(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n: DynamicValue, kill_first: DynamicValue, taker: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut left = n;
@@ -6648,7 +6914,7 @@ pub fn hit_ships(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n: Dyn
                         did = DynamicValue::Bool(true);
                     }
             }
-        left = left.clone() - DynamicValue::Int(1);
+        left = left - DynamicValue::Int(1);
     }
     if taker.clone() >= DynamicValue::Int(0) {
         {
@@ -6659,13 +6925,13 @@ pub fn hit_ships(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n: Dyn
         } else {
         }
     {
-        let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5)).into_owned() + left.clone();
-        let __ox_ix0 = DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5);
+        let __ox_tmp = __ox_idx(&t, DynamicValue::Int(h_spill() as i64)).into_owned() + left.clone();
+        let __ox_ix0 = DynamicValue::Int(h_spill() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn hit_buildings(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n: DynamicValue, taker: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut left = n;
@@ -6718,7 +6984,7 @@ pub fn hit_buildings(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n:
                         } else {
                         }
                     if (was_city.clone()).is_truthy() {
-                        t = outrage(t.clone(), p.clone(), planet_type(sys.clone()));
+                        t = outrage(t, p.clone(), planet_type(sys.clone()));
                         } else {
                         }
                     done = DynamicValue::Bool(true);
@@ -6727,11 +6993,11 @@ pub fn hit_buildings(mut t: DynamicValue, sys: DynamicValue, p: DynamicValue, n:
             }
             } else {
             }
-        left = left.clone() - DynamicValue::Int(1);
+        left = left - DynamicValue::Int(1);
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn outrage(mut t: DynamicValue, p: DynamicValue, ty: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let n = res(t.clone(), p.clone(), ty.clone());
@@ -6755,7 +7021,7 @@ pub fn outrage(mut t: DynamicValue, p: DynamicValue, ty: DynamicValue) -> Dynami
         }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn do_battle(s: DynamicValue, p: DynamicValue, sys: DynamicValue, e: DynamicValue, packed: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
@@ -6770,7 +7036,7 @@ pub fn do_battle(s: DynamicValue, p: DynamicValue, sys: DynamicValue, e: Dynamic
     for k in (range(DynamicValue::Int(0), DynamicValue::Int(3))).into_list() {
         let cnt = DynamicValue::list(vec![assault.clone(), skirm.clone(), raid.clone()]).index_any(k.clone());
         for i in (range(DynamicValue::Int(0), cnt.clone())).into_list() {
-            t = draw(t.clone());
+            t = draw(t);
             let f = die_face(k.clone(), roll_d6(t.clone()));
             {
                 let __ox_rhs = __ox_idx(&f, DynamicValue::Int(0)).into_owned();
@@ -6821,23 +7087,49 @@ pub fn do_battle(s: DynamicValue, p: DynamicValue, sys: DynamicValue, e: Dynamic
     }
     {
         let __ox_tmp = DynamicValue::Int(0);
-        let __ox_ix0 = DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5);
+        let __ox_ix0 = DynamicValue::Int(h_spill() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
-    t = hit_ships(t.clone(), sys.clone(), p.clone(), selfh.clone(), DynamicValue::Bool(false), e.clone());
+    if (has_court(t.clone(), p.clone(), court_pact())).is_truthy() {
+        selfh = max_i(DynamicValue::Int(0), selfh - DynamicValue::Int(1));
+        } else {
+        }
+    if (is_leader(t.clone(), p.clone(), DynamicValue::Int(1))).is_truthy() && (hits.clone() > DynamicValue::Int(0)) {
+        {
+            let __ox_rhs = DynamicValue::Int(1);
+            if let (DynamicValue::Str(__ox_a), DynamicValue::Str(__ox_b)) = (&mut hits, &__ox_rhs) {
+                __ox_a.push_str(__ox_b);
+            } else {
+                let __ox_l = std::mem::replace(&mut hits, DynamicValue::None);
+                hits = __ox_l + __ox_rhs;
+            }
+        }
+        } else {
+        }
+    t = hit_ships(t, sys.clone(), p.clone(), selfh.clone(), DynamicValue::Bool(false), e.clone());
     let back = min_i(inter.clone(), fresh(t.clone(), sys.clone(), e.clone()));
-    t = hit_ships(t.clone(), sys.clone(), p.clone(), back, DynamicValue::Bool(false), e.clone());
+    t = hit_ships(t, sys.clone(), p.clone(), back, DynamicValue::Bool(false), e.clone());
     let ships_before = all_ships(t.clone(), sys.clone(), e.clone());
-    t = hit_ships(t.clone(), sys.clone(), e.clone(), hits.clone(), DynamicValue::Bool(true), p.clone());
-    let spill = __ox_idx(&t, DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5)).into_owned();
+    t = hit_ships(t, sys.clone(), e.clone(), hits.clone(), DynamicValue::Bool(true), p.clone());
+    let spill = __ox_idx(&t, DynamicValue::Int(h_spill() as i64)).into_owned();
     {
         let __ox_tmp = DynamicValue::Int(0);
-        let __ox_ix0 = DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5);
+        let __ox_ix0 = DynamicValue::Int(h_spill() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
-    t = hit_buildings(t.clone(), sys.clone(), e.clone(), bhits.clone() + spill, p.clone());
+    let mut bh = bhits.clone() + spill;
+    if (has_court(t.clone(), e.clone(), court_seal())).is_truthy() {
+        bh = max_i(DynamicValue::Int(0), bh - DynamicValue::Int(1));
+        } else {
+        }
+    t = hit_buildings(t, sys.clone(), e.clone(), bh.clone(), p.clone());
     let mut stolen = DynamicValue::Int(0);
-    for k in (range(DynamicValue::Int(0), keys.clone())).into_list() {
+    let mut takes = keys.clone();
+    if (is_leader(t.clone(), p.clone(), DynamicValue::Int(5))).is_truthy() {
+        takes = keys.clone() * DynamicValue::Int(2);
+        } else {
+        }
+    for k in (range(DynamicValue::Int(0), takes)).into_list() {
         let mut best = -DynamicValue::Int(1);
         let mut bv = DynamicValue::Int(0);
         for ty in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
@@ -6872,12 +7164,12 @@ pub fn do_battle(s: DynamicValue, p: DynamicValue, sys: DynamicValue, e: Dynamic
     }
     {
         let __ox_tmp = DynamicValue::Int(0);
-        let __ox_ix0 = DynamicValue::Int(h_ev() as i64) + DynamicValue::Int(5);
+        let __ox_ix0 = DynamicValue::Int(h_spill() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
     return set_event(t.clone(), DynamicValue::Int(14), p.clone(), sys.clone(), e.clone(), stolen.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn settle(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if phase(s.clone()) != DynamicValue::Int(2) {
@@ -6899,7 +7191,7 @@ pub fn settle(s: DynamicValue) -> DynamicValue {
         }
     return s.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn clear_extras(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
@@ -6930,7 +7222,7 @@ pub fn clear_extras(s: DynamicValue) -> DynamicValue {
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn advance_turn(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = clear_extras(s);
@@ -6955,7 +7247,7 @@ pub fn advance_turn(s: DynamicValue) -> DynamicValue {
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn all_hands_empty(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     for p in (range(DynamicValue::Int(0), nplayers(s.clone()))).into_list() {
@@ -6966,7 +7258,7 @@ pub fn all_hands_empty(s: DynamicValue) -> DynamicValue {
     }
     return DynamicValue::Bool(true);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn end_round(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
@@ -6984,7 +7276,7 @@ pub fn end_round(s: DynamicValue) -> DynamicValue {
         let __ox_ix0 = DynamicValue::Int(h_init() as i64);
         *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
     }
-    t = set_event(t.clone(), DynamicValue::Int(20), next.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
+    t = set_event(t, DynamicValue::Int(20), next.clone(), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
     if (all_hands_empty(t.clone())).is_truthy() {
         return end_chapter(t.clone());
         } else {
@@ -7008,7 +7300,7 @@ pub fn end_round(s: DynamicValue) -> DynamicValue {
     }
     return start_round(t.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn amb_tally(s: DynamicValue, p: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     if a.clone() == DynamicValue::Int(0) {
@@ -7029,7 +7321,7 @@ pub fn amb_tally(s: DynamicValue, p: DynamicValue, a: DynamicValue) -> DynamicVa
         }
     return res(s.clone(), p.clone(), DynamicValue::Int(4));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn score_ambition(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s.clone();
@@ -7042,7 +7334,7 @@ pub fn score_ambition(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     let n = nplayers(t.clone());
     let mut top = DynamicValue::Int(0);
     for p in (range(DynamicValue::Int(0), n.clone())).into_list() {
-        top = max_i(top.clone(), amb_tally(t.clone(), p.clone(), a.clone()));
+        top = max_i(top, amb_tally(t.clone(), p.clone(), a.clone()));
     }
     if top.clone() == DynamicValue::Int(0) {
         return t.clone();
@@ -7067,7 +7359,7 @@ pub fn score_ambition(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     for p in (range(DynamicValue::Int(0), n.clone())).into_list() {
         let mut m = amb_tally(t.clone(), p.clone(), a.clone());
         if m.clone() < top.clone() {
-            second = max_i(second.clone(), m.clone());
+            second = max_i(second, m.clone());
             } else {
             }
     }
@@ -7099,13 +7391,32 @@ __ox_idx(&vals, DynamicValue::Int(1)).into_owned()
     }
     return t.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn end_chapter(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut t = s;
     for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
-        t = score_ambition(t.clone(), a.clone());
+        t = score_ambition(t, a.clone());
     }
+    for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+        if (has_court(t.clone(), p.clone(), court_accord())).is_truthy() {
+            {
+                let __ox_tmp = power(t.clone(), p.clone()) + DynamicValue::Int(1);
+                let __ox_ix0 = pb(p.clone());
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            } else {
+            }
+        if (is_leader(t.clone(), p.clone(), DynamicValue::Int(3))).is_truthy() && (res(t.clone(), p.clone(), DynamicValue::Int(4)) > DynamicValue::Int(0)) {
+            {
+                let __ox_tmp = power(t.clone(), p.clone()) + DynamicValue::Int(1);
+                let __ox_ix0 = pb(p.clone());
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            } else {
+            }
+    }
+    t = grant_lore(t);
     t = set_event(t.clone(), DynamicValue::Int(21), chapter(t.clone()), DynamicValue::Int(0), DynamicValue::Int(0), DynamicValue::Int(0));
     for a in (range(DynamicValue::Int(0), DynamicValue::Int(5))).into_list() {
         {
@@ -7150,12 +7461,38 @@ pub fn end_chapter(s: DynamicValue) -> DynamicValue {
     }
     return deal_chapter(t.clone());
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
+pub fn grant_lore(s: DynamicValue) -> DynamicValue {
+    __ox_stack_check();
+    let mut t = s;
+    let mut lo = power(t.clone(), DynamicValue::Int(0));
+    let mut hi = power(t.clone(), DynamicValue::Int(0));
+    for p in (range(DynamicValue::Int(1), nplayers(t.clone()))).into_list() {
+        lo = min_i(lo, power(t.clone(), p.clone()));
+        hi = max_i(hi, power(t.clone(), p.clone()));
+    }
+    if lo.clone() == hi.clone() {
+        return t.clone();
+        } else {
+        }
+    for p in (range(DynamicValue::Int(0), nplayers(t.clone()))).into_list() {
+        if (power(t.clone(), p.clone()) == lo.clone()) && (lore(t.clone(), p.clone()) < lore_cap()) {
+            {
+                let __ox_tmp = lore(t.clone(), p.clone()) + DynamicValue::Int(1);
+                let __ox_ix0 = pb(p.clone()) + DynamicValue::Int(17);
+                *__ox_index_mut(&mut t, __ox_ix0) = __ox_tmp;
+            }
+            } else {
+            }
+    }
+    return t.clone();
+}
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn is_over(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     return DynamicValue::Bool(phase(s) == DynamicValue::Int(4));
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn winner(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut best = DynamicValue::Int(0);
@@ -7169,7 +7506,7 @@ pub fn winner(s: DynamicValue) -> DynamicValue {
     }
     return best.clone();
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let p = cur(s.clone());
@@ -7218,6 +7555,14 @@ pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
         }
     if k.clone() == DynamicValue::Int(15) {
         return DynamicValue::Int(55);
+        } else {
+        }
+    if k.clone() == DynamicValue::Int(16) {
+        if acts(s.clone()) > DynamicValue::Int(0) {
+            return DynamicValue::Int(50);
+            } else {
+            }
+        return DynamicValue::Int(2);
         } else {
         }
     if k.clone() == DynamicValue::Int(7) {
@@ -7272,13 +7617,13 @@ pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
                         }
                     }
                     } else {
-                        v = v.clone() - DynamicValue::Int(25);
+                        v = v - DynamicValue::Int(25);
                     }
                 } else {
                 }
         }
         if (fresh(s.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), p.clone()) == __ox_idx(&a, DynamicValue::Int(3)).into_owned()) && (count_buildings(s.clone(), __ox_idx(&a, DynamicValue::Int(1)).into_owned(), p.clone()) > DynamicValue::Int(0)) {
-            v = v.clone() - DynamicValue::Int(30);
+            v = v - DynamicValue::Int(30);
             } else {
             }
         return v.clone();
@@ -7299,13 +7644,13 @@ pub fn score_action(s: DynamicValue, a: DynamicValue) -> DynamicValue {
             }
         let dice = __ox_idx(&a, DynamicValue::Int(3)).into_owned();
         let assault = dice / DynamicValue::Int(49);
-        v = v.clone() - (assault * DynamicValue::Int(2));
+        v = v - (assault * DynamicValue::Int(2));
         return v.clone();
         } else {
         }
     return DynamicValue::Int(1);
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn bot_choose(s: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let opts = legal_actions(s.clone());
@@ -7313,7 +7658,7 @@ pub fn bot_choose(s: DynamicValue) -> DynamicValue {
     let mut best = __ox_idx(&opts, DynamicValue::Int(0)).into_owned();
     let mut best_v = -DynamicValue::Int(1000000);
     for a in (opts.clone()).into_list() {
-        t = draw(t.clone());
+        t = draw(t);
         let v = (score_action(s.clone(), a.clone()) * DynamicValue::Int(10)) + (rng_val(__ox_idx(&t, DynamicValue::Int(h_rng() as i64)).into_owned()) % DynamicValue::Int(10));
         if v.clone() > best_v.clone() {
             best_v = v.clone();
@@ -7323,7 +7668,7 @@ pub fn bot_choose(s: DynamicValue) -> DynamicValue {
     }
     return best;
 }
-#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code)]
+#[allow(non_snake_case, unused_variables, unused_mut, unused_assignments, unreachable_code, dead_code, arithmetic_overflow, unconditional_panic)]
 pub fn bot_game(n: DynamicValue, seed: DynamicValue, setup_idx: DynamicValue) -> DynamicValue {
     __ox_stack_check();
     let mut s = new_game(n, seed, setup_idx);

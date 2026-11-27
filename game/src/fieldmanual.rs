@@ -157,7 +157,8 @@ fn actions(ui: &mut egui::Ui) {
         ("Repair", "Flip one damaged ship or building back to full strength."),
         ("Battle", "Split up to 18 ships into assault, skirmish and raid dice. Hits damage and destroy; a destroyed city yields a trophy and a captive."),
         ("Prelude", "Spend one resource for an extra action, once per action step. Relics are for the Court."),
-        ("Secure", "Spend 1 Relic on a Court card: +1 power, no action pip, no refill."),
+        ("Secure", "Spend 1 Relic on a Court card: +1 power and its lasting effect, no action pip, no refill."),
+        ("Lore", "Once per turn on your action step, spend a Lore token for one more action of the current suit."),
     ];
     for (name, body) in rows {
         ui.add_space(5.0);
@@ -183,12 +184,23 @@ fn court(ui: &mut egui::Ui) {
                 courtart::paint(ui.painter(), r, card, true, 1.0);
                 ui.add_space(3.0);
                 ui.label(head(card.name().to_uppercase(), 10.0));
+                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot]).small().color(DIM));
             });
         }
     });
-    rule(ui, "SECURING", "On your action step, spend 1 Relic to take one face-up Court card. It scores 1 power at once and stays in your panel for the rest of the game.");
-    rule(ui, "THE ROW", "The five cards are dealt at the start of a chapter. Securing removes a card and leaves an empty slot; the row is never refilled mid-chapter.");
+    rule(ui, "SECURING", "On your action step, spend 1 Relic to take one face-up Court card. It scores 1 power at once, stays in your panel for the rest of the game, and its effect is yours from then on.");
+    rule(ui, "THE ROW", "Five cards are laid out at the start of the game. Securing removes a card and leaves an empty slot; the row is never refilled.");
     rule(ui, "NO PIP", "Securing is separate from your normal actions: it does not spend an action pip.");
+    ui.add_space(8.0);
+    ui.label(head("LEADERS", 11.5));
+    ui.label(RichText::new("Each player is dealt one leader at setup. It adds one starting resource and bends one rule.").small().color(DIM));
+    for (name, body) in reach_rules::LEADERS.iter().zip(reach_rules::LEADER_EFFECTS) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(head(name.to_uppercase(), 10.0));
+            ui.label(RichText::new(body).small().color(DIM));
+        });
+    }
+    rule(ui, "LORE", "After each chapter is scored, the player with the least power gains a Lore token (at most 3; nobody gains one when all are level). Once per turn on your action step, spend one for an extra action of the current suit.");
 }
 
 fn scoring(ui: &mut egui::Ui) {

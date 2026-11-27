@@ -8,10 +8,14 @@
 // on every peer. Randomness comes from an LCG stored in the state.
 //
 // Court cards: five face-up cards. Securing one costs 1 Relic, scores its
-// influence (1 power) and keeps it in the securing player's court set. This is
-// the smallest Court/Secure rule consistent with the existing text (Relics are
-// reserved for the Court); Guild/Vox effects, leaders, lore and the +2/+5 city
-// bonuses of ambitions are deferred.
+// influence (1 power) and keeps it in the securing player's court set, where
+// it grants a lasting effect (see court_* below).
+//
+// Leaders: each player is dealt one of six leaders at setup. A leader adds one
+// starting resource and one rule bend. Lore: after each chapter is scored the
+// player(s) furthest behind gain a Lore token (max 3); once per turn in the
+// action step a Lore buys one more action of the current suit.
+// The +2/+5 city bonuses of ambitions are still deferred.
 
 import "data.ox"
 
@@ -35,6 +39,8 @@ fn h_x_move() -> Int { return 15 }
 fn h_x_battle() -> Int { return 16 }
 fn h_x_lead() -> Int { return 17 }
 fn h_acted() -> Int { return 18 }
+fn h_lore_used() -> Int { return 21 }  // a Lore was spent this turn
+fn h_spill() -> Int { return 29 }      // battle scratch: hits with no ship left to take them
 fn h_out() -> Int { return 20 }       // bitmask of clusters out of play
 fn h_amb() -> Int { return 22 }       // 5 entries: declaration rank 1..3, 0 = none
 fn h_amb_count() -> Int { return 27 }
@@ -57,6 +63,22 @@ fn trophies(s, p) { return s[pb(p) + 9] }
 fn captives(s, p) { return s[pb(p) + 10] }
 fn hand(s, p) { return s[pb(p) + 11] }
 fn secured(s, p) { return s[pb(p) + 15] }   // bitmask of court card ids
+fn leader(s, p) { return s[pb(p) + 16] }    // 0..5, see leader_res
+fn lore(s, p) { return s[pb(p) + 17] }
+fn lore_cap() { return 3 }
+
+// Court card ids: 0 Envoy, 1 Seal, 2 Writ, 3 Pact, 4 Accord.
+fn has_court(s, p, c) { return has_card(secured(s, p), c) }
+fn court_envoy() { return 0 }    // Tax takes one more of that resource
+fn court_seal() { return 1 }     // the first building hit in each battle against you is ignored
+fn court_writ() { return 2 }     // Repair fixes every damaged piece of yours in the system
+fn court_pact() { return 3 }     // the first self hit in each of your attacks is ignored
+fn court_accord() { return 4 }   // +1 power at each chapter end
+
+// Leaders: 0 Broker, 1 Admiral, 2 Architect, 3 Seer, 4 Pilgrim, 5 Corsair.
+fn n_leaders() { return 6 }
+fn leader_res(l) { return [1, 2, 0, 4, 3, 1][l] }    // starting resource
+fn is_leader(s, p, l) { return leader(s, p) == l }
 fn outraged(s, p, t) { return (s[pb(p) + 13] / pow2(t)) % 2 == 1 }
 fn court(s, i) { return s[h_court() + i] }
 fn court_value(c) { return 1 }    // assumption: every court card is +1 influence
@@ -254,8 +276,35 @@ fn new_game(n, seed, setup_idx) {
             s[supply_base() + t] = s[supply_base() + t] - 1
         }
     }
+    s = deal_leaders(s)
     s = shuffle_init(s)
     return deal_chapter(s)
+}
+
+// Shuffle the six leaders and give one to each player, with its resource.
+fn deal_leaders(s) {
+    let t = s
+    let ids = []
+    for l in range(0, n_leaders()) { ids = push(ids, l) }
+    let i = len(ids) - 1
+    while i > 0 {
+        t = draw(t)
+        let j = rng_val(t[h_rng()]) % (i + 1)
+        let tmp = ids[i]
+        ids[i] = ids[j]
+        ids[j] = tmp
+        i = i - 1
+    }
+    for p in range(0, nplayers(t)) {
+        let l = ids[p]
+        t[pb(p) + 16] = l
+        let r = leader_res(l)
+        if supply(t, r) > 0 {
+            t[pb(p) + 1 + r] = res(t, p, r) + 1
+            t[supply_base() + r] = supply(t, r) - 1
+        }
+    }
+    return t
 }
 
 // Random starting initiative.
@@ -407,8 +456,12 @@ fn legal_actions(s) {
             }
         }
         for i in range(0, 5) {
-            if court(s, i) >= 0 && can_spend(s, p, 3) { out = push(out, [15, i, 0, 0]) }
+            if court(s, i) >= 0 {
+                if court_pay_ok(s, p, 3) { out = push(out, [15, i, 0, 0]) }
+                if court_pay_ok(s, p, 4) { out = push(out, [15, i, 4, 0]) }
+            }
         }
+        if lore(s, p) > 0 && s[h_lore_used()] == 0 { out = push(out, [16, 0, 0, 0]) }
         for x in action_list(s) { out = push(out, x) }
         out = push(out, [7, 0, 0, 0])
     }
@@ -559,7 +612,15 @@ fn begin_actions(t, suit, pips) {
     t[h_act_suit()] = suit
     t[h_acts()] = pips
     t[h_acted()] = 0
+    t[h_lore_used()] = 0
     return t
+}
+
+// Securing pays one Relic; the Pilgrim may pay one Psionic instead.
+fn court_pay_ok(s, p, r) {
+    if r == 3 { return can_spend(s, p, 3) }
+    if r == 4 { return is_leader(s, p, 4) && can_spend(s, p, 4) }
+    return false
 }
 
 fn apply(s, a) {
@@ -635,13 +696,23 @@ fn apply(s, a) {
         // scores its influence immediately and stays in the player's court set.
         let i = a[1]
         let c = s[h_court() + i]
-        if c < 0 || !can_spend(s, p, 3) { return t }
+        let r = 3
+        if a[2] == 4 { r = 4 }
+        if c < 0 || !court_pay_ok(s, p, r) { return t }
         t[h_court() + i] = -1
-        t[pb(p) + 1 + 3] = res(s, p, 3) - court_cost()
-        t[supply_base() + 3] = supply(s, 3) + court_cost()
+        t[pb(p) + 1 + r] = res(s, p, r) - court_cost()
+        t[supply_base() + r] = supply(s, r) + court_cost()
         t[pb(p) + 15] = secured(s, p) + pow2(c)
         t[pb(p)] = power(s, p) + court_value(c)
         return set_event(t, 15, p, i, c, 0)
+    }
+    if kind == 16 {
+        // Lore: one more action of the current suit, once per turn.
+        if lore(s, p) <= 0 || s[h_lore_used()] == 1 { return t }
+        t[pb(p) + 17] = lore(s, p) - 1
+        t[h_acts()] = s[h_acts()] + 1
+        t[h_lore_used()] = 1
+        return set_event(t, 16, p, lore(t, p), 0, 0)
     }
     // Real actions: pay with a pip or a prelude extra.
     let src = source_for(s, kind)
@@ -666,12 +737,15 @@ fn apply(s, a) {
 
 fn do_tax(t, p, sys) {
     let ty = planet_type(sys)
-    t[pb(p) + 1 + ty] = res(t, p, ty) + 1
-    t[supply_base() + ty] = supply(t, ty) - 1
-    return set_event(t, 8, p, sys, ty, 0)
+    let n = 1
+    if has_court(t, p, court_envoy()) && supply(t, ty) >= 2 { n = 2 }
+    t[pb(p) + 1 + ty] = res(t, p, ty) + n
+    t[supply_base() + ty] = supply(t, ty) - n
+    return set_event(t, 8, p, sys, ty, n)
 }
 
 fn build_dmg(t, sys, p) {
+    if is_leader(t, p, 2) { return 0 }    // Architect: builds are never damaged
     let c = controller(t, sys)
     if c >= 0 && c != p { return 1 }
     return 0
@@ -688,7 +762,9 @@ fn do_build_building(t, p, sys, sl, kind) {
 
 fn do_build_ships(t, p, sys) {
     let d = build_dmg(t, sys, p)
-    let n = min_i(count_kind(t, sys, p, 2, 0), reserve(t, p))
+    let want = count_kind(t, sys, p, 2, 0)
+    if is_leader(t, p, 0) { want = want + 1 }    // Broker: one more ship
+    let n = min_i(want, reserve(t, p))
     t[ship_i(sys, p, d)] = t[ship_i(sys, p, d)] + n
     t[pb(p) + 8] = reserve(t, p) - n
     return set_event(t, 11, p, sys, n, d)
@@ -706,6 +782,15 @@ fn do_move(t, p, from, to, cnt) {
 }
 
 fn do_repair(t, p, sys, what) {
+    if has_court(t, p, court_writ()) {
+        // Writ: every damaged piece of yours here is repaired.
+        t[ship_i(sys, p, 0)] = fresh(t, sys, p) + damaged(t, sys, p)
+        t[ship_i(sys, p, 1)] = 0
+        for sl in range(0, 2) {
+            if slot_kind(t, sys, sl) != 0 && slot_owner(t, sys, sl) == p { t[slot_i(sys, sl) + 2] = 0 }
+        }
+        return set_event(t, 13, p, sys, what, 1)
+    }
     if what == 0 {
         t[ship_i(sys, p, 1)] = damaged(t, sys, p) - 1
         t[ship_i(sys, p, 0)] = fresh(t, sys, p) + 1
@@ -748,7 +833,7 @@ fn hit_ships(t, sys, p, n, kill_first, taker) {
         left = left - 1
     }
     if taker >= 0 { t[pb(taker) + 9] = trophies(t, taker) + lost }
-    t[h_ev() + 5] = t[h_ev() + 5] + left
+    t[h_spill()] = t[h_spill()] + left
     return t
 }
 
@@ -818,7 +903,9 @@ fn do_battle(s, p, sys, e, packed) {
             keys = keys + f[4]
         }
     }
-    t[h_ev() + 5] = 0
+    t[h_spill()] = 0
+    if has_court(t, p, court_pact()) { selfh = max_i(0, selfh - 1) }
+    if is_leader(t, p, 1) && hits > 0 { hits = hits + 1 }    // Admiral: one more ship hit
     // 1. self hits (the attacker minimises its losses: damage fresh ships first)
     t = hit_ships(t, sys, p, selfh, false, e)
     // 2. one round of interception: each intercept lets a fresh defender ship hit back
@@ -827,13 +914,17 @@ fn do_battle(s, p, sys, e, packed) {
     // 3. ship hits, spilling to buildings once the defender has no ships left
     let ships_before = all_ships(t, sys, e)
     t = hit_ships(t, sys, e, hits, true, p)
-    let spill = t[h_ev() + 5]
-    t[h_ev() + 5] = 0
+    let spill = t[h_spill()]
+    t[h_spill()] = 0
     // 4. building hits (plus any spill)
-    t = hit_buildings(t, sys, e, bhits + spill, p)
+    let bh = bhits + spill
+    if has_court(t, e, court_seal()) { bh = max_i(0, bh - 1) }
+    t = hit_buildings(t, sys, e, bh, p)
     // 5. raids: each key steals the defender's most plentiful resource
     let stolen = 0
-    for k in range(0, keys) {
+    let takes = keys
+    if is_leader(t, p, 5) { takes = keys * 2 }    // Corsair: each key takes two
+    for k in range(0, takes) {
         let best = -1
         let bv = 0
         for ty in range(0, 5) {
@@ -846,7 +937,7 @@ fn do_battle(s, p, sys, e, packed) {
             stolen = stolen + 1
         }
     }
-    t[h_ev() + 5] = 0
+    t[h_spill()] = 0
     return set_event(t, 14, p, sys, e, stolen)
 }
 
@@ -956,6 +1047,11 @@ fn score_ambition(s, a) {
 fn end_chapter(s) {
     let t = s
     for a in range(0, 5) { t = score_ambition(t, a) }
+    for p in range(0, nplayers(t)) {
+        if has_court(t, p, court_accord()) { t[pb(p)] = power(t, p) + 1 }
+        if is_leader(t, p, 3) && res(t, p, 4) > 0 { t[pb(p)] = power(t, p) + 1 }    // Seer
+    }
+    t = grant_lore(t)
     t = set_event(t, 21, chapter(t), 0, 0, 0)
     for a in range(0, 5) { t[h_amb() + a] = 0 }
     t[h_amb_count()] = 0
@@ -971,6 +1067,22 @@ fn end_chapter(s) {
     }
     t[h_chapter()] = chapter(t) + 1
     return deal_chapter(t)
+}
+
+// The player(s) with the least power gain one Lore, unless everyone is level.
+fn grant_lore(s) {
+    let t = s
+    let lo = power(t, 0)
+    let hi = power(t, 0)
+    for p in range(1, nplayers(t)) {
+        lo = min_i(lo, power(t, p))
+        hi = max_i(hi, power(t, p))
+    }
+    if lo == hi { return t }
+    for p in range(0, nplayers(t)) {
+        if power(t, p) == lo && lore(t, p) < lore_cap() { t[pb(p) + 17] = lore(t, p) + 1 }
+    }
+    return t
 }
 
 fn is_over(s) { return phase(s) == 4 }
@@ -1003,6 +1115,7 @@ fn score_action(s, a) {
     if k == 5 { return 5 }
     if k == 6 { return 12 }
     if k == 15 { return 55 }
+    if k == 16 { if acts(s) > 0 { return 50 } return 2 }
     if k == 7 { return 1 }
     if k == 8 { return 40 + (5 - supply(s, planet_type(a[1]))) }
     if k == 9 { return 90 }

@@ -17,6 +17,7 @@ export const RESOURCES = ['Material', 'Fuel', 'Weapons', 'Relics', 'Psionic'];
 export const AMBITIONS = ['Tycoon', 'Tyrant', 'Warlord', 'Keeper', 'Empath'];
 export const COURT_CARDS = ['Envoy', 'Seal', 'Writ', 'Pact', 'Accord'];
 export const COURT_COST = 1;
+export const LEADERS = ['Broker', 'Admiral', 'Architect', 'Seer', 'Pilgrim', 'Corsair'];
 
 // Layout from rules/ox/reach.ox (h_* role indices, p_base / p_stride and the
 // ships / slots / supply blocks).
@@ -36,6 +37,9 @@ export type SeatView = {
   captives: number;
   secured: number[];
   hand: number[];
+  /** Index into LEADERS. */
+  leader: number;
+  lore: number;
 };
 
 export type SlotView = { kind: number; owner: number; damaged: boolean };
@@ -85,6 +89,8 @@ export function viewOf(state: GameState): PublicView {
       captives: state[base + 10] ?? 0,
       secured: bits(state[base + 15] ?? 0, 5),
       hand: bits(state[base + 11] ?? 0, 28),
+      leader: state[base + 16] ?? 0,
+      lore: state[base + 17] ?? 0,
     });
   }
 
@@ -151,6 +157,7 @@ const KIND_LABELS = [
   'repair',
   'battle',
   'secure',
+  'spend lore',
 ];
 
 /** A short, human label for a legal action, used as the button text. */
@@ -188,7 +195,9 @@ export function actionLabel(action: Action): string {
       return `Battle in ${a} vs player ${b + 1} (${assault}A ${skirmish}S ${raid}R)`;
     }
     case 15:
-      return `Secure ${COURT_CARDS[a] ?? '?'} · ${COURT_COST} Relic`;
+      return `Secure ${COURT_CARDS[a] ?? '?'} · ${COURT_COST} ${b === 4 ? 'Psionic' : 'Relic'}`;
+    case 16:
+      return 'Spend Lore · extra action';
     default:
       return KIND_LABELS[kind] ?? `action ${kind}`;
   }
