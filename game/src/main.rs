@@ -161,6 +161,7 @@ struct Ember {
     statics: Vec<Item>,
     ship: Slots,
     city: Slots,
+    port: Slots,
     ring_mesh: usize,
     bar_mesh: usize,
     sphere_mesh: usize,
@@ -256,6 +257,7 @@ impl Ember {
             statics: Vec::new(),
             ship: Slots { team: 0, hull: 0, glow: 0 },
             city: Slots { team: 0, hull: 0, glow: 0 },
+            port: Slots { team: 0, hull: 0, glow: 0 },
             ring_mesh: 0,
             bar_mesh: 0,
             sphere_mesh: 0,
@@ -406,6 +408,7 @@ impl Ember {
         self.bar_mesh = cube;
         self.ship = self.upload_model(gl, &models::ship())?;
         self.city = self.upload_model(gl, &models::city())?;
+        self.port = self.upload_model(gl, &models::starport())?;
         let platform = self.upload_model(gl, &models::platform())?;
 
         let tr = |p: Vec3, r: Quat, s: Vec3| Mat4::from_scale_rotation_translation(s, r, p);
@@ -892,7 +895,7 @@ impl Ember {
                 let k = 1.0 - (1.0 - k).powi(3);
                 match s.slot(sys, sl) {
                     Slot::City { owner, damaged } => {
-                        let m = tr(system_pos(sys) + off, Quat::IDENTITY, Vec3::new(0.95, 0.95 * k, 0.95));
+                        let m = tr(system_pos(sys) + off, Quat::IDENTITY, Vec3::new(1.0, k, 1.0));
                         let mut tm = team_mat(owner);
                         if damaged {
                             tm.base_color = tm.base_color.map(|v| v * 0.35);
@@ -904,12 +907,16 @@ impl Ember {
                         }
                     }
                     Slot::Starport { owner, damaged } => {
-                        let m = tr(system_pos(sys) + off - Vec3::new(0.0, 0.05, 0.0), Quat::IDENTITY, Vec3::new(0.6, 0.35 * k, 0.6));
+                        let m = tr(system_pos(sys) + off, Quat::IDENTITY, Vec3::new(1.0, k, 1.0));
                         let mut tm = team_mat(owner);
                         if damaged {
                             tm.base_color = tm.base_color.map(|v| v * 0.35);
                         }
-                        out.push(Item { mesh: self.bar_mesh, model: m, material: tm, casts: true });
+                        out.push(Item { mesh: self.port.team, model: m, material: tm, casts: true });
+                        out.push(Item { mesh: self.port.hull, model: m, material: hull_mat, casts: true });
+                        if !damaged {
+                            out.push(Item { mesh: self.port.glow, model: m, material: city_glow, casts: false });
+                        }
                     }
                     Slot::Empty => {}
                 }

@@ -109,58 +109,98 @@ pub struct Model {
     pub glow: MeshData,
 }
 
-/// A small fighter pointing along +X: swept wings, tail fin, glowing engine.
+/// Six-sided parts read as built, not turned; the hex is the faction's shape.
+const HEX: u32 = 6;
+
+/// A light frigate pointing along +X. The silhouette is a long diamond-section
+/// hull with a forward-swept delta and two engine pods, so it reads as a ship
+/// (not a dart) at overview distance. Team colour covers the hull and wings,
+/// bare metal the pods, spine and cockpit; only the engine mouths glow.
 pub fn ship() -> Model {
     let (mut team, mut hull, mut glow) = (MeshBuilder::default(), MeshBuilder::default(), MeshBuilder::default());
     let along_x = Quat::from_rotation_z(-PI / 2.0);
-    // fuselage: tapered cone, wide at the tail
-    team.add(&frustum(16, 0.11, 0.025, 0.62), t(Vec3::new(-0.3, 0.0, 0.0), along_x, Vec3::ONE));
-    // wings, swept back
+    // Hull: four segments give a keel and a ridge; flattened so it sits low.
+    team.add(&frustum(4, 0.13, 0.018, 0.66), t(Vec3::new(-0.3, 0.0, 0.0), along_x * Quat::from_rotation_y(PI / 4.0), Vec3::new(1.0, 1.0, 0.62)));
+    // Delta wings: one plate each side, swept back from mid-hull.
     for side in [-1.0f32, 1.0] {
-        let yaw = Quat::from_rotation_y(side * 0.55);
-        team.add(&primitives::cube(), t(Vec3::new(-0.12, -0.01, side * 0.17), yaw, Vec3::new(0.3, 0.018, 0.22)));
-        hull.add(&primitives::cube(), t(Vec3::new(-0.2, -0.0, side * 0.30), yaw, Vec3::new(0.12, 0.03, 0.04)));
+        team.add(&primitives::cube(), t(Vec3::new(-0.16, -0.015, side * 0.15), Quat::from_rotation_y(side * 0.42), Vec3::new(0.34, 0.022, 0.2)));
+        // Engine pods at the wing roots, bare metal.
+        hull.add(&frustum(10, 0.045, 0.038, 0.2), t(Vec3::new(-0.42, 0.0, side * 0.11), along_x, Vec3::ONE));
+        team.add(&frustum(10, 0.038, 0.0, 0.07), t(Vec3::new(-0.22, 0.0, side * 0.11), along_x, Vec3::ONE));
+        glow.add(&frustum(10, 0.034, 0.034, 0.012), t(Vec3::new(-0.43, 0.0, side * 0.11), along_x, Vec3::ONE));
+        // Wingtip fins, angled out.
+        hull.add(&primitives::cube(), t(Vec3::new(-0.27, 0.035, side * 0.3), Quat::from_rotation_x(side * 0.5), Vec3::new(0.14, 0.08, 0.012)));
     }
-    // tail fin
-    team.add(&primitives::cube(), t(Vec3::new(-0.25, 0.09, 0.0), Quat::from_rotation_z(0.3), Vec3::new(0.18, 0.14, 0.018)));
-    // cockpit
-    hull.add(&primitives::uv_sphere(12, 8), t(Vec3::new(0.0, 0.07, 0.0), Quat::IDENTITY, Vec3::new(0.16, 0.08, 0.08)));
-    // engine nozzle and glow
-    hull.add(&frustum(12, 0.07, 0.09, 0.07), t(Vec3::new(-0.38, 0.0, 0.0), along_x, Vec3::ONE));
-    glow.add(&primitives::uv_sphere(12, 8), t(Vec3::new(-0.43, 0.0, 0.0), Quat::IDENTITY, Vec3::new(0.09, 0.06, 0.06)));
+    // Dorsal spine and cockpit canopy.
+    hull.add(&primitives::cube(), t(Vec3::new(-0.12, 0.05, 0.0), Quat::IDENTITY, Vec3::new(0.34, 0.035, 0.03)));
+    hull.add(&primitives::uv_sphere(12, 8), t(Vec3::new(0.08, 0.035, 0.0), Quat::IDENTITY, Vec3::new(0.11, 0.045, 0.05)));
     Model { team: team.finish(), hull: hull.finish(), glow: glow.finish() }
 }
 
-/// A domed city: round base, a cluster of towers with lit windows, a crown.
+/// An arcology on a hex plinth: a stepped central tower with a metal spire and
+/// three lower towers around it. Team colour is on every tower so ownership
+/// reads from above; windows are thin lit bands, not dots, so the glow stays
+/// a texture of the building and never a halo. Footprint radius 0.44, so the
+/// two building slots of a system no longer overlap.
 pub fn city() -> Model {
     let (mut team, mut hull, mut glow) = (MeshBuilder::default(), MeshBuilder::default(), MeshBuilder::default());
-    hull.add(&frustum(28, 0.62, 0.55, 0.09), Mat4::IDENTITY);
-    team.add(&torus(0.58, 0.035, 28, 8), t(Vec3::new(0.0, 0.1, 0.0), Quat::IDENTITY, Vec3::ONE));
-    let towers = [
-        (0.0, 0.0, 0.17, 0.62),
-        (0.30, 0.05, 0.11, 0.38),
-        (-0.22, 0.22, 0.12, 0.44),
-        (-0.14, -0.28, 0.10, 0.30),
-        (0.18, -0.26, 0.09, 0.26),
-    ];
-    for (x, z, r, h) in towers {
-        team.add(&frustum(14, r, r * 0.72, h), t(Vec3::new(x, 0.09, z), Quat::IDENTITY, Vec3::ONE));
-        hull.add(&frustum(14, r * 0.74, 0.0, h * 0.18), t(Vec3::new(x, 0.09 + h, z), Quat::IDENTITY, Vec3::ONE));
-        // window rings
-        let rows = (h / 0.09) as i32;
-        for row in 1..rows {
-            let y = 0.09 + row as f32 * 0.085;
-            let rr = r - (r * 0.28) * (y - 0.09) / h + 0.004;
-            for k in 0..6 {
-                let a = (k as f32 + row as f32 * 0.5) / 6.0 * TAU;
-                glow.add(
-                    &primitives::cube(),
-                    t(Vec3::new(x + a.cos() * rr, y, z + a.sin() * rr), Quat::from_rotation_y(-a), Vec3::new(0.01, 0.02, 0.022)),
-                );
+    let rot = Quat::from_rotation_y(PI / 6.0);
+    hull.add(&frustum(HEX, 0.44, 0.4, 0.07), t(Vec3::ZERO, rot, Vec3::ONE));
+    team.add(&frustum(HEX, 0.37, 0.34, 0.05), t(Vec3::new(0.0, 0.07, 0.0), rot, Vec3::ONE));
+    let base = 0.12;
+    // Central tower: three set-back tiers and a spire.
+    let tiers = [(0.19, 0.16, 0.26), (0.14, 0.115, 0.2), (0.095, 0.075, 0.16)];
+    let mut y = base;
+    for (i, (r0, r1, h)) in tiers.into_iter().enumerate() {
+        team.add(&frustum(HEX, r0, r1, h), t(Vec3::new(0.0, y, 0.0), rot, Vec3::ONE));
+        // A metal ledge at each setback.
+        hull.add(&frustum(HEX, r1 + 0.018, r1 + 0.012, 0.018), t(Vec3::new(0.0, y + h, 0.0), rot, Vec3::ONE));
+        for b in 0..2 {
+            let yy = y + h * (0.3 + 0.35 * b as f32);
+            let rr = r0 + (r1 - r0) * (0.3 + 0.35 * b as f32) + 0.003;
+            if i < 2 || b == 0 {
+                glow.add(&frustum(HEX, rr, rr, 0.008), t(Vec3::new(0.0, yy, 0.0), rot, Vec3::ONE));
             }
         }
+        y += h + 0.018;
     }
-    glow.add(&primitives::uv_sphere(12, 8), t(Vec3::new(0.0, 0.09 + 0.62 + 0.11, 0.0), Quat::IDENTITY, Vec3::splat(0.05)));
+    hull.add(&frustum(HEX, 0.035, 0.0, 0.3), t(Vec3::new(0.0, y, 0.0), rot, Vec3::ONE));
+    glow.add(&primitives::uv_sphere(10, 6), t(Vec3::new(0.0, y + 0.31, 0.0), Quat::IDENTITY, Vec3::splat(0.022)));
+    // Three outer towers on the plinth, different heights.
+    for (k, h) in [0.3f32, 0.22, 0.17].into_iter().enumerate() {
+        let a = k as f32 / 3.0 * TAU + 0.5;
+        let p = Vec3::new(a.cos() * 0.25, base, a.sin() * 0.25);
+        team.add(&frustum(HEX, 0.075, 0.06, h), t(p, rot, Vec3::ONE));
+        hull.add(&frustum(HEX, 0.068, 0.02, 0.05), t(p + Vec3::Y * h, rot, Vec3::ONE));
+        glow.add(&frustum(HEX, 0.071, 0.071, 0.007), t(p + Vec3::Y * (h * 0.62), rot, Vec3::ONE));
+        // A skybridge to the central tower.
+        let mid = p * 0.55 + Vec3::Y * (base + h * 0.55);
+        hull.add(&primitives::cube(), t(Vec3::new(mid.x, mid.y, mid.z), Quat::from_rotation_y(-a), Vec3::new(0.14, 0.02, 0.03)));
+    }
+    Model { team: team.finish(), hull: hull.finish(), glow: glow.finish() }
+}
+
+/// A starport: hex landing pad in team colour, three metal pylons and a
+/// raised docking ring. From above it reads as an open ring, which no other
+/// piece has, so a port is told apart from a city at a glance.
+pub fn starport() -> Model {
+    let (mut team, mut hull, mut glow) = (MeshBuilder::default(), MeshBuilder::default(), MeshBuilder::default());
+    let rot = Quat::from_rotation_y(PI / 6.0);
+    hull.add(&frustum(HEX, 0.42, 0.39, 0.06), t(Vec3::ZERO, rot, Vec3::ONE));
+    team.add(&frustum(HEX, 0.33, 0.31, 0.03), t(Vec3::new(0.0, 0.06, 0.0), rot, Vec3::ONE));
+    // Landing marks: a small metal hex at the centre.
+    hull.add(&frustum(HEX, 0.1, 0.09, 0.012), t(Vec3::new(0.0, 0.09, 0.0), rot, Vec3::ONE));
+    let ring_y = 0.4;
+    for k in 0..3 {
+        let a = k as f32 / 3.0 * TAU + PI / 2.0;
+        let p = Vec3::new(a.cos() * 0.31, 0.06, a.sin() * 0.31);
+        hull.add(&frustum(8, 0.04, 0.026, ring_y - 0.02), t(p, Quat::IDENTITY, Vec3::ONE));
+        // Clamp where the pylon meets the ring.
+        team.add(&primitives::cube(), t(p + Vec3::Y * (ring_y - 0.06), Quat::from_rotation_y(-a), Vec3::new(0.05, 0.08, 0.07)));
+        glow.add(&primitives::uv_sphere(8, 6), t(p + Vec3::Y * (ring_y + 0.05), Quat::IDENTITY, Vec3::splat(0.018)));
+    }
+    hull.add(&torus(0.31, 0.03, 40, 8), t(Vec3::new(0.0, ring_y, 0.0), Quat::IDENTITY, Vec3::ONE));
+    team.add(&torus(0.31, 0.012, 40, 6), t(Vec3::new(0.0, ring_y + 0.032, 0.0), Quat::IDENTITY, Vec3::ONE));
     Model { team: team.finish(), hull: hull.finish(), glow: glow.finish() }
 }
 

@@ -46,7 +46,9 @@ at capture, secure and trophy events.
    A 2-player `--autoplay --human` game was started at 719x936 for this purpose.
    The chapter-1 Pass click advanced to chapter 2 correctly, and leading an
    Administration card worked.
-2. **Action-strip click issue:** in that live 2-player test, the Tax and End turn
+2. **Action-strip click issue** (2026-11-27: not reproduced in the native build. Under Xvfb at 1280x860
+   and 719x936, leading Administration then clicking Tax and End turn applied both. Recheck in the browser build;
+   the strip reflows after each action, so a scripted click at a stale position misses): in that live 2-player test, the Tax and End turn
    buttons in the action strip did not register, although the card Lead button,
    the Pass button and the Court tiles did. Investigate before claiming the
    controls are fully exercised. The camera also returned to a cinematic view

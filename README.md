@@ -52,7 +52,7 @@ rules/   reach_rules crate
   ox_gen/reach_gen.rs  committed transpiled copy, used when no `oxidized` binary is installed
   src/lib.rs           typed wrapper: State, Action, Event, validate(); serde, so it can be saved or sent
 game/    ember_reach crate (Dust game)
-  src/models.rs        procedural ships, cities, platforms: no asset files
+  src/models.rs        procedural ships, cities, starports, platforms: no asset files
   src/camera.rs        orbit / pan / zoom / glide camera (tested)
   src/ui.rs            egui menu, scoreboard, Court row, hand, action list, log
   src/courtart.rs      procedural Court card emblems (no image assets)
@@ -116,6 +116,14 @@ The table has a built-in Field Manual and a board guide:
 | L | open the ledger: every score, resource, trophy, captive and secured card |
 
 The Court row in the left panel shows each face-up card's art; click a card on your action step to secure it.
+
+## Pieces
+
+Ships, cities and starports are built in code (`game/src/models.rs`). Each piece puts team colour where it
+reads from above: a frigate with a diamond hull, delta wings and twin pods; a stepped arcology on a hex plinth;
+a hex pad under a raised docking ring, so a starport is told from a city at a glance.
+
+![old pieces left, new pieces right](docs/pieces.png)
 
 ## Not done yet
 
