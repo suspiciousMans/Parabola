@@ -1,7 +1,7 @@
 //! egui screens: start menu, in-game HUD (scores, hand, actions, log), game over.
 
 use egui::{self, Color32, FontFamily, FontId, RichText};
-use reach_rules::{Action, Card, Kind, Phase, Slot, State, AMBITIONS, COURT_CARDS, COURT_COST, COURT_VALUE, RESOURCES, SUITS, SYSTEMS};
+use reach_rules::{Action, Card, Kind, Phase, State, AMBITIONS, COURT_CARDS, COURT_COST, COURT_EFFECTS, COURT_VALUE, LEADERS, LEADER_EFFECTS, RESOURCES, SUITS};
 
 use crate::courtart;
 use crate::fieldmanual;
@@ -314,7 +314,8 @@ pub fn action_text(a: Action) -> String {
             let (asl, sk, rd) = (v[3] / 49, v[3] / 7 % 7, v[3] % 7);
             format!("Battle · {} vs {} ({}A {}S {}R)", sys_name(v[1] as usize), NAMES[v[2] as usize], asl, sk, rd)
         }
-        Kind::Secure => format!("Secure {} · {} Relic", COURT_CARDS[v[1] as usize], COURT_COST),
+        Kind::Secure => format!("Secure {} · {} {}", COURT_CARDS[v[1] as usize], COURT_COST, if v[2] == 4 { "Psionic" } else { "Relic" }),
+        Kind::Lore => "Spend Lore · extra action".into(),
     }
 }
 
@@ -575,6 +576,13 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                             if s.initiative() == p {
                                 plabel!(ui, "standings", 1, &format!("lead.{p}"), head("LEAD", 10.5).color(BRASS));
                             }
+                            // Phone widths have no room beside the power; the
+                            // leader moves to the secured line there.
+                            let l = s.leader(p);
+                            if ctx.screen_rect().width() >= 620.0 {
+                                plabel!(ui, "standings", 1, &format!("leader.{p}"), head(LEADERS[l].to_uppercase(), 9.0).color(DIM))
+                                    .on_hover_text(format!("Leader: {}. {}", LEADERS[l], LEADER_EFFECTS[l]));
+                            }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 plabel!(ui, "standings", 1, &format!("goal.{p}"), RichText::new(format!("/{goal}")).small().color(DIM));
                                 plabel!(ui, "standings", 1, &format!("power.{p}"), head(s.power(p).to_string(), 20.0))
@@ -614,16 +622,31 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                             paint_captive(ui.painter(), cr, if cap > 0 { CAPTIVE } else { DIM });
                             plabel!(ui, "standings", 1, &format!("cap.{p}"), RichText::new(format!("CAPTIVES {}", cap)).small().color(if cap > 0 { INK } else { DIM }))
                                 .on_hover_text("One per enemy city destroyed in battle");
+                            let lore = s.lore(p);
+                            if lore > 0 {
+                                ui.add_space(4.0);
+                                plabel!(ui, "standings", 1, &format!("lore.{p}"), RichText::new(format!("LORE {}", lore)).small().color(BRASS))
+                                    .on_hover_text("Lore: once per turn on your action step, spend one for an extra action of the current suit. The player furthest behind gains one after each chapter.");
+                            }
                         });
                         let secured = s.secured(p);
                         let names: Vec<&str> = secured.iter().map(|c| c.name()).collect();
-                        let text = if names.is_empty() {
+                        let mut text = if names.is_empty() {
                             "SECURED —".to_string()
                         } else {
                             format!("SECURED  {}", names.join(" · "))
                         };
+                        if ctx.screen_rect().width() < 620.0 {
+                            text = format!("{}  ·  {}", LEADERS[s.leader(p)].to_uppercase(), text);
+                        }
                         crate::probe::ptext_wrap(ui, "standings", 1, &format!("secure.{p}"), RichText::new(text).small().color(if names.is_empty() { DIM } else { BRASS }))
-                            .on_hover_text("Court cards secured with Relics; each is permanent +1 power");
+                            .on_hover_text({
+                                let mut t = String::from("Court cards: +1 power each, and a lasting effect.");
+                                for c in &secured {
+                                    t.push_str(&format!("\n{}: {}", c.name(), COURT_EFFECTS[c.0 as usize]));
+                                }
+                                t
+                            });
                     });
                 });
                 if p + 1 < n {
@@ -643,7 +666,9 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(if narrow { 2.0 } else { 4.0 }, 0.0);
                 for slot in 0..5 {
-                    let action = Action([15, slot as i64, 0, 0]);
+                    // The Pilgrim may pay with Psionic when they hold no Relic.
+                    let relic = Action([15, slot as i64, 0, 0]);
+                    let action = if legal.contains(&relic) { relic } else { Action([15, slot as i64, 4, 0]) };
                     let enabled = can_act && legal.contains(&action);
                     let card = s.court_card(slot);
                     let tile = ui.allocate_ui_with_layout(
@@ -671,9 +696,10 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                     }
                     if let Some(c) = card {
                         if enabled {
-                            resp.on_hover_text(format!("Secure {} · 1 Relic → +1 power. No action pip; the row is not refilled.", c.name()));
+                            let pay = if action.0[2] == 4 { "Psionic" } else { "Relic" };
+                            resp.on_hover_text(format!("Secure {} · 1 {pay} → +1 power and: {}. No action pip; the row is not refilled.", c.name(), COURT_EFFECTS[c.0 as usize]));
                         } else {
-                            resp.on_hover_text(format!("{} · secure with 1 Relic on your action step", c.name()));
+                            resp.on_hover_text(format!("{}: {}. Secure with 1 Relic on your action step.", c.name(), COURT_EFFECTS[c.0 as usize]));
                         }
                     }
                 }
@@ -987,6 +1013,7 @@ pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
         13 => format!("{} repairs at {}", nm(e[1]), sys_name(e[2] as usize)),
         14 => format!("{} attacks {} at {}", nm(e[1]), nm(e[3]), sys_name(e[2] as usize)),
         15 => format!("{} secures {} (+{} power)", nm(e[1]), COURT_CARDS[e[3] as usize], COURT_VALUE),
+        16 => format!("{} spends Lore for an extra action", nm(e[1])),
         20 => format!("Round over, {} holds the initiative", nm(e[1])),
         21 => format!("Chapter {} scored", e[1]),
         _ => return None,

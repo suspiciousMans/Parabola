@@ -1,4 +1,4 @@
-import { AMBITIONS, RESOURCES, SUITS, cardName, type Action, type PublicView } from '../game/view';
+import { AMBITIONS, LEADERS, RESOURCES, SUITS, cardName, type Action, type PublicView } from '../game/view';
 import './styles.css';
 import { canRunGame, gameError, isGameRoom, showGame } from './game';
 
@@ -194,6 +194,7 @@ function scoreboard(view: PublicView, snapshot: Snapshot): string {
         <td data-label="player">${escapeHtml(snapshot.seats[index]?.name ?? `P${index + 1}`)}${isBot ? ' <span class="tag bot">bot</span>' : ''}${
           tags.length ? ` <span class="tag">${tags.join(' ')}</span>` : ''
         }</td>
+        <td data-label="leader">${escapeHtml(LEADERS[seat.leader] ?? '?')}${seat.lore > 0 ? ` · lore ${seat.lore}` : ''}</td>
         <td data-label="power">${seat.power}</td>
         <td data-label="resources">${escapeHtml(resourceChips(seat))}</td>
         <td data-label="cities left">${seat.citiesLeft}</td>
@@ -202,7 +203,7 @@ function scoreboard(view: PublicView, snapshot: Snapshot): string {
     })
     .join('');
   return `<table class="score">
-    <thead><tr><th>player</th><th>power</th><th>resources</th><th>cities left</th><th>trophies</th></tr></thead>
+    <thead><tr><th>player</th><th>leader</th><th>power</th><th>resources</th><th>cities left</th><th>trophies</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }

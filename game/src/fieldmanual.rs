@@ -59,9 +59,9 @@ const TUTORIAL: [(&str, &str, &[&str]); 6] = [
     ),
     (
         "6 · SCORE THE CHAPTER",
-        "When the hands are empty the chapter ends. Declared ambitions pay their marker values, then each city pays 1 power.",
+        "When the hands are empty the chapter ends. Declared ambitions pay their marker values; the Accord and the Seer add +1, and whoever is furthest behind gains Lore.",
         &[
-            "After scoring, the next chapter deals new hands and a fresh Court row.",
+            "After scoring, the next chapter deals new hands. The Court row is not refilled.",
             "The board guide (G) labels the ring, Court, played cards, ambitions and power track.",
         ],
     ),
@@ -145,7 +145,7 @@ fn turn(ui: &mut egui::Ui) {
     rule(ui, "ONE TRICK", "The initiative holder leads. They take two actions of the led suit; every other seat follows in turn order and takes one action.");
     rule(ui, "FOLLOWING", "Follow the lead suit when you can. Otherwise pivot with any card and take an action of that card's suit. Surpass and copy keep you in the lead suit.");
     rule(ui, "WINNING THE TRICK", "The highest card of the lead suit takes it: +1 power and the initiative. The cards go to the discard pile.");
-    rule(ui, "AFTER SIX TRICKS", "When every hand is empty the chapter scores, cities pay out, and a new chapter deals fresh hands and a new Court row.");
+    rule(ui, "AFTER SIX TRICKS", "When every hand is empty the chapter scores and a new chapter deals fresh hands. The Court row is not refilled.");
 }
 
 fn actions(ui: &mut egui::Ui) {
@@ -157,7 +157,8 @@ fn actions(ui: &mut egui::Ui) {
         ("Repair", "Flip one damaged ship or building back to full strength."),
         ("Battle", "Split up to 18 ships into assault, skirmish and raid dice. Hits damage and destroy; a destroyed city yields a trophy and a captive."),
         ("Prelude", "Spend one resource for an extra action, once per action step. Relics are for the Court."),
-        ("Secure", "Spend 1 Relic on a Court card: +1 power, no action pip, no refill."),
+        ("Secure", "Spend 1 Relic on a Court card: +1 power and its lasting effect, no action pip, no refill."),
+        ("Lore", "Once per turn on your action step, spend a Lore token for one more action of the current suit."),
     ];
     for (name, body) in rows {
         ui.add_space(5.0);
@@ -183,17 +184,28 @@ fn court(ui: &mut egui::Ui) {
                 courtart::paint(ui.painter(), r, card, true, 1.0);
                 ui.add_space(3.0);
                 ui.label(head(card.name().to_uppercase(), 10.0));
+                ui.label(RichText::new(reach_rules::COURT_EFFECTS[slot]).small().color(DIM));
             });
         }
     });
-    rule(ui, "SECURING", "On your action step, spend 1 Relic to take one face-up Court card. It scores 1 power at once and stays in your panel for the rest of the game.");
-    rule(ui, "THE ROW", "The five cards are dealt at the start of a chapter. Securing removes a card and leaves an empty slot; the row is never refilled mid-chapter.");
+    rule(ui, "SECURING", "On your action step, spend 1 Relic to take one face-up Court card. It scores 1 power at once, stays in your panel for the rest of the game, and its effect is yours from then on.");
+    rule(ui, "THE ROW", "Five cards are laid out at the start of the game. Securing removes a card and leaves an empty slot; the row is never refilled.");
     rule(ui, "NO PIP", "Securing is separate from your normal actions: it does not spend an action pip.");
+    ui.add_space(8.0);
+    ui.label(head("LEADERS", 11.5));
+    ui.label(RichText::new("Each player is dealt one leader at setup. It adds one starting resource and bends one rule.").small().color(DIM));
+    for (name, body) in reach_rules::LEADERS.iter().zip(reach_rules::LEADER_EFFECTS) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(head(name.to_uppercase(), 10.0));
+            ui.label(RichText::new(body).small().color(DIM));
+        });
+    }
+    rule(ui, "LORE", "After each chapter is scored, the player with the least power gains a Lore token (at most 3; nobody gains one when all are level). Once per turn on your action step, spend one for an extra action of the current suit.");
 }
 
 fn scoring(ui: &mut egui::Ui) {
     rule(ui, "AMBITIONS", "Five scoring cards sit at the right. A seat can declare an ambition; when the chapter ends, the highest tallies for the declared cards receive their marker values.");
-    rule(ui, "CITIES", "After ambitions score, every city pays its owner 1 power.");
+    rule(ui, "CITIES", "Cities score no power on their own: they let you Tax their planet's resource, and a destroyed city gives the attacker a trophy and a captive.");
     rule(ui, "FIVE CHAPTERS", "The game runs up to five chapters. If a player reaches the power goal at a chapter end, the game ends there; otherwise the highest power after chapter five wins.");
     rule(ui, "TROPHIES & CAPTIVES", "Trophies are destroyed enemy pieces. Captives are taken when an enemy city is destroyed in battle. They are public and feed Tyrant and Warlord.");
 }

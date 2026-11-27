@@ -46,6 +46,26 @@ pub const AMBITIONS: [&str; 5] = ["Tycoon", "Tyrant", "Warlord", "Keeper", "Empa
 pub const COURT_CARDS: [&str; 5] = ["Envoy", "Seal", "Writ", "Pact", "Accord"];
 pub const COURT_COST: i64 = 1; // Relics
 pub const COURT_VALUE: i64 = 1; // power per secured court card
+/// What each Court card does for its holder, in `COURT_CARDS` order.
+pub const COURT_EFFECTS: [&str; 5] = [
+    "Tax takes one more of that resource",
+    "The first building hit in each battle against you is ignored",
+    "Repair fixes every damaged piece of yours in the system",
+    "The first self hit in each of your attacks is ignored",
+    "+1 power at each chapter end",
+];
+pub const LEADERS: [&str; 6] = ["Broker", "Admiral", "Architect", "Seer", "Pilgrim", "Corsair"];
+/// Each leader's rule bend, in `LEADERS` order.
+pub const LEADER_EFFECTS: [&str; 6] = [
+    "Build ships places one more ship",
+    "One more ship hit when attacking with any hit",
+    "Your builds are never damaged",
+    "+1 power at chapter end while holding Psionic",
+    "May secure Court cards with Psionic instead of Relics",
+    "Each raid key takes two resources",
+];
+/// Lore tokens a player can hold.
+pub const LORE_CAP: i64 = 3;
 
 const P_BASE: usize = 40;
 const P_STRIDE: usize = 20;
@@ -75,6 +95,7 @@ pub enum Kind {
     Repair,
     Battle,
     Secure,
+    Lore,
 }
 
 impl Action {
@@ -96,6 +117,7 @@ impl Action {
             13 => Kind::Repair,
             14 => Kind::Battle,
             15 => Kind::Secure,
+            16 => Kind::Lore,
             _ => Kind::Battle,
         }
     }
@@ -307,6 +329,14 @@ impl State {
             .map(CourtCard)
             .collect()
     }
+    /// The leader dealt to `p` at setup (index into `LEADERS`).
+    pub fn leader(&self, p: usize) -> usize {
+        self.pf(p, 16).clamp(0, LEADERS.len() as i64 - 1) as usize
+    }
+    /// Lore tokens `p` holds; one buys an extra action once per turn.
+    pub fn lore(&self, p: usize) -> i64 {
+        self.pf(p, 17)
+    }
     pub fn has_secured(&self, p: usize, c: CourtCard) -> bool {
         (self.pf(p, 15) >> c.0) & 1 == 1
     }
@@ -496,6 +526,27 @@ mod tests {
         s.0[11] = 0;
         s.0[P_BASE + 4] = 0;
         assert!(!s.legal_actions().contains(&Action([15, 0, 0, 0])));
+    }
+
+    #[test]
+    fn leaders_and_lore_are_readable() {
+        let s = State::new(4, 5, 0);
+        let mut seen: Vec<usize> = (0..4).map(|p| s.leader(p)).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 4);
+        assert!((0..4).all(|p| s.lore(p) == 0));
+        let mut t = s.clone();
+        t.0[2] = 2;
+        t.0[3] = 1;
+        t.0[11] = 1;
+        t.0[P_BASE + P_STRIDE + 17] = 1;
+        let a = Action([16, 0, 0, 0]);
+        assert_eq!(a.kind(), Kind::Lore);
+        assert!(t.legal_actions().contains(&a));
+        let u = t.apply(a);
+        assert_eq!(u.lore(1), 0);
+        assert_eq!(u.actions_left(), 2);
     }
 
     #[test]
