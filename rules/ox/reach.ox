@@ -7,8 +7,11 @@
 // of Ints, so both are trivially serialisable (saves, network) and identical
 // on every peer. Randomness comes from an LCG stored in the state.
 //
-// Not in stage 1: Court cards (Influence, Secure, Guild/Vox effects), leaders,
-// lore, the +2/+5 city bonuses of ambitions.
+// Court cards: five face-up cards. Securing one costs 1 Relic, scores its
+// influence (1 power) and keeps it in the securing player's court set. This is
+// the smallest Court/Secure rule consistent with the existing text (Relics are
+// reserved for the Court); Guild/Vox effects, leaders, lore and the +2/+5 city
+// bonuses of ambitions are deferred.
 
 import "data.ox"
 
@@ -35,6 +38,7 @@ fn h_acted() -> Int { return 18 }
 fn h_out() -> Int { return 20 }       // bitmask of clusters out of play
 fn h_amb() -> Int { return 22 }       // 5 entries: declaration rank 1..3, 0 = none
 fn h_amb_count() -> Int { return 27 }
+fn h_court() { return 35 }     // 5 face-up court card ids, -1 = secured/empty
 fn h_ev() -> Int { return 30 }        // last event: kind, a..e
 fn p_base() -> Int { return 40 }
 fn p_stride() -> Int { return 20 }
@@ -52,7 +56,11 @@ fn reserve(s, p) { return s[pb(p) + 8] }
 fn trophies(s, p) { return s[pb(p) + 9] }
 fn captives(s, p) { return s[pb(p) + 10] }
 fn hand(s, p) { return s[pb(p) + 11] }
+fn secured(s, p) { return s[pb(p) + 15] }   // bitmask of court card ids
 fn outraged(s, p, t) { return (s[pb(p) + 13] / pow2(t)) % 2 == 1 }
+fn court(s, i) { return s[h_court() + i] }
+fn court_value(c) { return 1 }    // assumption: every court card is +1 influence
+fn court_cost() { return 1 }     // one Relic (resource 3)
 fn supply(s, t) { return s[supply_base() + t] }
 fn phase(s) { return s[h_phase()] }
 fn cur(s) { return s[h_cur()] }
@@ -212,6 +220,7 @@ fn new_game(n, seed, setup_idx) {
     s[h_out()] = mask
     s[h_seized()] = -1
     s[h_lead_suit()] = -1
+    for i in range(0, 5) { s[h_court() + i] = i }
     for t in range(0, 5) { s[supply_base() + t] = 5 }
     for sys in range(0, n_sys()) {
         for sl in range(0, 2) { s[slot_i(sys, sl)] = -1 }
@@ -334,7 +343,8 @@ fn ambition_options(s, num) {
     return out
 }
 
-// Which action kinds the suit's actions cover (Court actions come later).
+// Which action kinds the suit's actions cover. Court securing is kind 15:
+// available in the action step, paid with Relics, and not bound to a suit pip.
 fn suit_allows(suit, kind) {
     if suit == 0 { return kind == 8 || kind == 13 }           // Administration: tax, repair
     if suit == 1 { return kind == 14 || kind == 12 }          // Aggression: battle, move
@@ -391,10 +401,13 @@ fn legal_actions(s) {
         out = push(out, [4, 0, 0, 0])
     } else if ph == 2 {
         if s[h_acted()] == 0 {
-            // Prelude: spend a resource for an extra action (Relics wait for the Court).
+            // Prelude: spend a resource for an extra action (Relics are for the Court).
             for t in [0, 1, 2, 4] {
                 if can_spend(s, p, t) { out = push(out, [6, t, 0, 0]) }
             }
+        }
+        for i in range(0, 5) {
+            if court(s, i) >= 0 && can_spend(s, p, 3) { out = push(out, [15, i, 0, 0]) }
         }
         for x in action_list(s) { out = push(out, x) }
         out = push(out, [7, 0, 0, 0])
@@ -617,6 +630,19 @@ fn apply(s, a) {
         t = set_event(t, 7, p, 0, 0, 0)
         return advance_turn(t)
     }
+    if kind == 15 {
+        // Court: one Relic secures one face-up card. The card leaves the row,
+        // scores its influence immediately and stays in the player's court set.
+        let i = a[1]
+        let c = s[h_court() + i]
+        if c < 0 || !can_spend(s, p, 3) { return t }
+        t[h_court() + i] = -1
+        t[pb(p) + 1 + 3] = res(s, p, 3) - court_cost()
+        t[supply_base() + 3] = supply(s, 3) + court_cost()
+        t[pb(p) + 15] = secured(s, p) + pow2(c)
+        t[pb(p)] = power(s, p) + court_value(c)
+        return set_event(t, 15, p, i, c, 0)
+    }
     // Real actions: pay with a pip or a prelude extra.
     let src = source_for(s, kind)
     if src == 1 {
@@ -744,7 +770,13 @@ fn hit_buildings(t, sys, p, n, taker) {
                     t[slot_i(sys, sl)] = -1
                     t[slot_i(sys, sl) + 1] = 0
                     t[slot_i(sys, sl) + 2] = 0
-                    if taker >= 0 { t[pb(taker) + 9] = trophies(t, taker) + 1 }
+                    // Destroyed pieces are trophies. Stage 1 has no agent pieces, so a
+                    // destroyed city also yields one captive (its captured agent) for the
+                    // Tyrant ambition; starports are infrastructure and yield no captive.
+                    if taker >= 0 {
+                        t[pb(taker) + 9] = trophies(t, taker) + 1
+                        if was_city { t[pb(taker) + 10] = captives(t, taker) + 1 }
+                    }
                     if was_city { t = outrage(t, p, planet_type(sys)) }
                     done = true
                 }
@@ -970,6 +1002,7 @@ fn score_action(s, a) {
     if k == 4 { return 1 }
     if k == 5 { return 5 }
     if k == 6 { return 12 }
+    if k == 15 { return 55 }
     if k == 7 { return 1 }
     if k == 8 { return 40 + (5 - supply(s, planet_type(a[1]))) }
     if k == 9 { return 90 }

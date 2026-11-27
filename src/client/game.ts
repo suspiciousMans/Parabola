@@ -37,6 +37,8 @@ type Payload = {
 declare global {
   interface Window {
     emberSite?: { take(): string; submit(action: Action): void; leave(): void };
+    /** Called by the game once the board and its sky are built. */
+    emberBoardReady?: () => void;
     Module?: Record<string, unknown>;
   }
 }
@@ -85,6 +87,10 @@ export function showGame(
 
   app.innerHTML = `<div class="stage">
       <canvas id="canvas" tabindex="-1"></canvas>
+      <div class="boardloading" id="boardloading" role="status">
+        <span class="boardloading-mark" aria-hidden="true"></span>
+        <span class="boardloading-text">Charting the galaxy</span>
+      </div>
       <div class="stagebar">
         <span>Room <b>${room.code}</b></span>
         <button id="invite" class="link">Copy invite link</button>
@@ -110,7 +116,32 @@ export function showGame(
   };
 
   const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
+  const loader = document.querySelector<HTMLElement>('#boardloading');
+  window.emberBoardReady = () => {
+    if (!loader || loader.classList.contains('done')) return;
+    loader.classList.add('done');
+    window.setTimeout(() => loader.remove(), 600);
+  };
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+  // The engine's SDL bridge takes button positions from the last mousemove.
+  // A click can arrive without one (touchpads, automation, synthetic taps),
+  // which would press wherever the pointer last was; replay it as motion.
+  window.addEventListener(
+    'mousedown',
+    (event) => {
+      if (event.target !== canvas) return;
+      canvas.dispatchEvent(
+        new MouseEvent('mousemove', {
+          bubbles: true,
+          view: window,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          buttons: 0,
+        }),
+      );
+    },
+    true,
+  );
   window.Module = {
     canvas,
     arguments: ['--site'],

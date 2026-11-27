@@ -3,14 +3,20 @@
 //!
 //! Run: `cargo run -p ember_reach --release`
 //!   --autoplay          start a 3-bot game and let it play itself
-//!   --shot out.png      with --autoplay: save a screenshot mid-game and exit
+//!   --shot out.png      with --autoplay: save a screenshot (at game over if it ends first) and exit
 //!   --after N           ...after N actions (default 40)
+//!   --ledger            open the ledger immediately (screenshot/review aid)
+//!   --size WxH          window size (default 1280x720)
 
 mod camera;
 mod cards;
+mod courtart;
+mod fieldmanual;
 mod galaxy;
+mod guides;
 mod models;
 mod planets;
+mod probe;
 mod site;
 mod ui;
 
@@ -40,6 +46,10 @@ type Ev = [i64; 5];
 fn cluster_angle(c: usize) -> f32 {
     (-85.0f32).to_radians() + c as f32 * TAU / 6.0
 }
+
+/// The power track sits inside the board's bottom margin, clear of the action
+/// strip and hand, so low-power pieces stay visible behind the HUD.
+const POWER_Z: f32 = 6.4;
 
 /// Six clusters around a central hub. Each has a gate on the inner ring and
 /// three planets fanning outward: two outer ones either side and a nearer
@@ -83,16 +93,26 @@ fn lin(c: [u8; 3]) -> [f32; 3] {
     c.map(|v| (v as f32 / 255.0).powf(2.2))
 }
 
+/// Model scale, column step (radians) and lane gap for a formation of `n` at
+/// one system. Crowded formations fly smaller ships on a tighter step, so
+/// hulls never overlap and four players still fit around one system.
+fn ship_formation(n: usize) -> (f32, f32, f32) {
+    let cols = n.div_ceil(3).max(1) as f32;
+    let k = (1.8 / cols).clamp(0.55, 1.0);
+    (0.52 * k, 0.66 * k, 0.48 * k)
+}
+
 /// Resting slot of ship `i` of `n` belonging to `player` around a system centre.
 fn ship_slot(system: usize, player: usize, i: usize, n: usize) -> (Vec3, f32) {
-    // Three lanes at slightly different radii, filled left to right.
+    // Three lanes at different radii, filled left to right.
     let sector = player as f32 / 4.0 * TAU + 0.4;
+    let (_, step, lane_gap) = ship_formation(n);
     let lane = i % 3;
     let col = i / 3;
-    let cols = n.div_ceil(3);
-    let a = sector + (col as f32 - (cols as f32 - 1.0) / 2.0) * 0.40 + lane as f32 * 0.13;
-    let base = if system % 4 == 3 { 0.6 } else { 0.94 };
-    let r = base + lane as f32 * 0.11;
+    let cols = n.div_ceil(3).max(1);
+    let a = sector + (col as f32 - (cols as f32 - 1.0) / 2.0) * step;
+    let base = if system % 4 == 3 { 0.66 } else { 1.0 };
+    let r = base + lane as f32 * lane_gap;
     let p = system_pos(system) + Vec3::new(a.cos() * r, 0.13, a.sin() * r);
     (p, -a - std::f32::consts::FRAC_PI_2) // heading along the ring
 }
@@ -195,6 +215,10 @@ struct Ember {
     actions_taken: usize,
     shot: Option<String>,
     shot_after: usize,
+    probe: bool,
+    hold: Option<usize>,
+    holding: bool,
+    probe_sent: bool,
     frame: u32,
     shot_pending: u32,
 }
@@ -279,6 +303,10 @@ impl Ember {
             actions_taken: 0,
             shot: arg_value(&args, "--shot"),
             shot_after: arg_value(&args, "--after").and_then(|v| v.parse().ok()).unwrap_or(40),
+            probe: args.iter().any(|a| a == "--probe"),
+            hold: arg_value(&args, "--hold").and_then(|v| v.parse().ok()),
+            holding: false,
+            probe_sent: false,
             frame: 0,
             shot_pending: 0,
         };
@@ -286,14 +314,38 @@ impl Ember {
         if autoplay {
             me.menu.players = arg_value(&args, "--players").and_then(|v| v.parse().ok()).unwrap_or(3);
             me.menu.bots = [true; 4];
-            me.start_game(7);
+            let seed = arg_value(&args, "--seed").and_then(|v| v.parse().ok()).unwrap_or(7);
+            me.start_game(seed);
+        }
+        // Deterministic live-page capture: play the bot game forward in rules
+        // space, then hold that state. No animations or timers are involved, so
+        // the browser screenshot and the probe describe the same action count.
+        if let Some(jump) = arg_value(&args, "--jump").and_then(|v| v.parse::<usize>().ok()) {
+            let mut st = me.truth.clone();
+            let mut steps = 0;
+            while steps < jump && !st.is_over() {
+                st = st.apply(st.bot_choose());
+                steps += 1;
+            }
+            me.truth = st.clone();
+            me.view = st;
+            me.actions_taken = steps;
+            me.holding = true;
+            me.city_rise = [me.clock; SYSTEMS];
+        }
+        // Screenshot helper: show the ledger immediately (also useful with --autoplay).
+        if args.iter().any(|a| a == "--ledger") {
+            ui::toggle_ledger();
         }
         if args.iter().any(|a| a == "--topdown") {
             me.camera.glide_to(Vec3::ZERO, 29.0, 1.45);
             me.cinematic = false;
         }
         if args.iter().any(|a| a == "--human") {
+            // The HUD reads `bots` for enabling controls; the update loop reads
+            // `ai` for auto-play. A human seat must be cleared in both.
             me.bots[0] = false;
+            me.ai[0] = false;
         }
         if let Some(c) = arg_value(&args, "--focus").and_then(|v| v.parse::<usize>().ok()) {
             me.camera.focus(system_pos(c));
@@ -420,7 +472,7 @@ impl Ember {
         for i in 0..51 {
             let x = -11.5 + i as f32 * 0.46;
             let major = i % 5 == 0;
-            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, 9.2), Quat::IDENTITY, Vec3::new(0.38, 0.02, if major { 0.5 } else { 0.38 })), material: if major { gold } else { dim_gold }, casts: false });
+            st.push(Item { mesh: cube, model: tr(Vec3::new(x, 0.02, POWER_Z), Quat::IDENTITY, Vec3::new(0.38, 0.02, if major { 0.5 } else { 0.38 })), material: if major { gold } else { dim_gold }, casts: false });
         }
         // left edge: deck, surpass/copy/pivot slot, lead slot; top edge: court row
         for (z, d) in [(-5.6, 3.0), (-0.9, 5.6), (4.6, 3.2)] {
@@ -639,8 +691,8 @@ impl Ember {
     fn follow_target(&self, extra: usize) -> [f32; 2] {
         let s = &self.card_slots;
         let n = self.table.follows.len() + self.flies.iter().filter(|f| f.land == cards::Land::Follow).count() + extra;
-        let dy = (n as f32 / 2.0) * s.card_w * 0.55;
-        [s.follow[0], s.follow[1] + dy]
+        let dx = (n as f32 / 2.0) * s.card_w * 0.82;
+        [s.follow[0] + dx, s.follow[1]]
     }
 
     /// Sends a played card from the hand (or a bot's row) to its slot.
@@ -682,12 +734,12 @@ impl Ember {
         if let Some(c) = self.table.lead.take() {
             out.push((Some(c), s.lead, 0.0));
         }
-        let n = self.table.follows.len();
-        for (i, c) in self.table.follows.drain(..).enumerate() {
-            let dy = (i as f32 - (n as f32 - 1.0) / 2.0) * s.card_w * 0.55;
-            let flip = if c.is_some() { 0.0 } else { 1.0 };
-            out.push((c, [s.follow[0], s.follow[1] + dy], flip));
-        }
+                    let n = self.table.follows.len();
+            for (i, c) in self.table.follows.drain(..).enumerate() {
+                let dx = (i as f32 - (n as f32 - 1.0) / 2.0) * s.card_w * 0.82;
+                let flip = if c.is_some() { 0.0 } else { 1.0 };
+                out.push((c, [s.follow[0] + dx, s.follow[1]], flip));
+            }
         for (i, (card, at, flip)) in out.into_iter().enumerate() {
             self.flies.push(cards::Fly {
                 card,
@@ -780,12 +832,18 @@ impl Ember {
         let city_glow = PbrMaterial { emissive: [1.0, 0.65, 0.3], ..PbrMaterial::plastic([1.0, 0.7, 0.3]) };
         let bob = |i: usize| (self.clock * 1.6 + i as f32 * 1.7).sin() * 0.02;
 
-        // power tokens along the bottom track
+        // Power tokens along the bottom track: one lane per seat. A small
+        // along-track stagger keeps equal scores readable as three pieces
+        // instead of one stack at the start of the track.
         for p in 0..n {
             let pw = (s.power(p).max(0) as f32).min(50.0);
-            let x = -11.5 + pw * 0.46;
+            let x = -11.5 + pw * 0.46 + p as f32 * 0.24;
             let col = lin(ui::COLORS_UI[p]);
-            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.12 + p as f32 * 0.02, 9.2 - 0.5 + p as f32 * 0.32), Quat::IDENTITY, Vec3::new(0.26, 0.22, 0.26)), material: PbrMaterial { roughness: 0.3, metallic: 0.5, emissive: col.map(|v| v * 0.5), ..PbrMaterial::plastic(col) }, casts: false });
+            // Stand the pieces on the near side of the line, not behind it:
+            // the gold cells would otherwise hide low-power pieces.
+            let z = POWER_Z + 0.34 + p as f32 * 0.20;
+            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.10, z), Quat::IDENTITY, Vec3::new(0.27, 0.18, 0.27)), material: PbrMaterial { roughness: 0.8, metallic: 0.1, emissive: col.map(|v| v * 0.18), ..PbrMaterial::plastic(lin([28, 26, 24])) }, casts: false });
+            out.push(Item { mesh: self.hex_mesh, model: tr(Vec3::new(x, 0.18, z), Quat::IDENTITY, Vec3::new(0.18, 0.18, 0.18)), material: PbrMaterial { roughness: 0.3, metallic: 0.5, emissive: col.map(|v| v * 0.7), ..PbrMaterial::plastic(col) }, casts: false });
         }
         // ambition boxes light up with their declaration rank
         let ranks = s.ambition_ranks();
@@ -867,9 +925,10 @@ impl Ember {
         for sys in 0..SYSTEMS {
             for p in 0..n {
                 let cnt = s.ship_count(sys, p) as usize;
+                let (scale, _, _) = ship_formation(cnt);
                 for i in 0..cnt {
                     let (pos, heading) = ship_slot(sys, p, i, cnt);
-                    ship_item(pos, heading, p, 1.0, bob(sys * 8 + p * 3 + i), true);
+                    ship_item(pos, heading, p, scale, bob(sys * 8 + p * 3 + i), true);
                 }
             }
         }
@@ -880,13 +939,15 @@ impl Ember {
             let e = k * k * (3.0 - 2.0 * k);
             let src_cnt = s.ship_count(*from, *player) as usize;
             let dst_cnt = s.ship_count(*to, *player) as usize + *fl;
+            let src_scale = ship_formation(src_cnt + *fl).0;
+            let dst_scale = ship_formation(dst_cnt).0;
             for i in 0..*fl {
                 let (a, _) = ship_slot(*from, *player, src_cnt - i.min(src_cnt.saturating_sub(1)), src_cnt + *fl);
                 let (b, _) = ship_slot(*to, *player, dst_cnt - 1 - i, dst_cnt);
                 let mid = a.lerp(b, e) + Vec3::new(0.0, (std::f32::consts::PI * e).sin() * 1.1, 0.0);
                 let d = b - a;
                 let heading = -d.z.atan2(d.x);
-                ship_item(mid, heading, *player, 1.0, 0.0, false);
+                ship_item(mid, heading, *player, src_scale + (dst_scale - src_scale) * e, 0.0, false);
                 // engine trail: fading glow beads behind the ship
                 let col = lin(ui::COLORS_UI[*player]);
                 for k in 1..=6 {
@@ -958,6 +1019,10 @@ impl Game for Ember {
         self.white = Some(GpuTexture::from_rgba8(&gl, &[255; 4], 1, 1, TextureFilter::Bilinear)?);
         self.build_scene(&gl)?;
         self.galaxy = Some(galaxy::Galaxy::new(&gl)?);
+        if site::enabled() {
+            // The board and its sky are built: take the page's loading veil down.
+            site::ready();
+        }
         self.ui = Some(EguiState::new(ctx.gl_arc())?);
         Ok(())
     }
@@ -968,7 +1033,9 @@ impl Game for Ember {
         }
         match event {
             Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                if self.site {
+                if ui::close_overlay() {
+                    // the overlay took the key
+                } else if self.site {
                     // the page owns navigation
                 } else if matches!(self.screen, Screen::Play) {
                     self.screen = Screen::Menu;
@@ -980,6 +1047,21 @@ impl Game for Ember {
             Event::KeyDown { keycode: Some(Keycode::C), .. } => {
                 self.cinematic = !self.cinematic;
                 self.cine_moved = false;
+            }
+            Event::KeyDown { keycode: Some(Keycode::L), .. } => {
+                if matches!(self.screen, Screen::Play) {
+                    ui::toggle_ledger();
+                }
+            }
+            Event::KeyDown { keycode: Some(Keycode::R), .. } => {
+                if matches!(self.screen, Screen::Play) {
+                    ui::toggle_manual();
+                }
+            }
+            Event::KeyDown { keycode: Some(Keycode::G), .. } => {
+                if matches!(self.screen, Screen::Play) {
+                    ui::toggle_guide();
+                }
             }
             Event::KeyDown { keycode: Some(Keycode::Q), .. } => self.camera.quarter_turn(-1.0),
             Event::KeyDown { keycode: Some(Keycode::E), .. } => self.camera.quarter_turn(1.0),
@@ -1026,6 +1108,7 @@ impl Game for Ember {
             let speed = self.camera.cam.distance * 0.9 * dt;
             self.camera.pan(r * speed, f * speed);
         }
+        self.camera.fit(ctx.aspect_ratio());
         self.camera.update(dt);
         if let Some((_, t)) = self.toast.as_mut() {
             *t -= dt;
@@ -1080,8 +1163,24 @@ impl Game for Ember {
             self.camera.overview();
         }
 
+        // Screenshot/probe run: stop at the requested action, or settle the
+        // final state at game over. The UI then stays still for the browser
+        // screenshot and the probe export.
+        if self.hold.is_some() {
+            if self.truth.is_over() {
+                if !self.holding {
+                    self.view = self.truth.clone();
+                    self.anim = None;
+                    self.queue.clear();
+                    self.holding = true;
+                }
+            } else if !busy && self.hold.is_some_and(|h| self.actions_taken >= h) {
+                self.holding = true;
+            }
+        }
+
         // bots
-        if !busy && !self.truth.is_over() && self.ai[self.truth.current()] {
+        if !busy && !self.holding && !self.truth.is_over() && self.ai[self.truth.current()] {
             self.bot_timer -= dt * speed;
             if self.bot_timer <= 0.0 {
                 let a = self.truth.bot_choose();
@@ -1182,10 +1281,37 @@ impl Game for Ember {
                 let c = vp * dust_engine::glam::Vec4::new(x, 0.05, z, 1.0);
                 [(c.x / c.w * 0.5 + 0.5) * ww3 as f32, (1.0 - (c.y / c.w * 0.5 + 0.5)) * wh3 as f32]
             };
-            let (l, f, d) = (pt(-11.7, 4.6), pt(-11.7, -0.9), pt(-11.7, -5.6));
-            let w = (pt(-10.7, 4.6)[0] - pt(-12.7, 4.6)[0]).abs().clamp(46.0, 96.0);
-            self.card_slots = cards::Slots { lead: l, follow: [f[0], f[1] + w * 0.4], discard: d, card_w: w };
+            // Played cards are a horizontal row above the action strip. Keeping
+            // them off the map's left edge stops a second card from sliding
+            // under the status bar on a tall, narrow window.
+            let w = if self.win[0] < 620.0 { 62.0 } else { 84.0 };
+            let card_h = w * 136.0 / 96.0;
+            let y = (self.win[1] - 360.0 - card_h * 0.5).max(40.0 + card_h * 0.5);
+            let lead_x = self.win[0] * 0.5 - w * 1.6;
+            let follow_x = lead_x + w * 1.2;
+            self.card_slots = cards::Slots {
+                lead: [lead_x, y],
+                follow: [follow_x, y],
+                discard: [follow_x + w * 2.3, y],
+                card_w: w,
+            };
         }
+        let anchors = {
+            let vp = self.camera.view_proj(aspect);
+            let pt = |x: f32, z: f32| {
+                let c = vp * dust_engine::glam::Vec4::new(x, 0.05, z, 1.0);
+                [(c.x / c.w * 0.5 + 0.5) * ww3 as f32, (1.0 - (c.y / c.w * 0.5 + 0.5)) * wh3 as f32]
+            };
+            let gate = system_pos(3);
+            guides::Anchors {
+                ring: pt(0.0, 0.0),
+                gates: pt(gate.x, gate.z),
+                court: pt(0.0, -9.0),
+                ambitions: pt(11.3, 0.0),
+                power: pt(0.0, POWER_Z),
+                played: [self.card_slots.follow[0], self.card_slots.follow[1]],
+            }
+        };
         let (table, flies, card_slots) = (self.table.clone(), self.flies.clone(), self.card_slots);
         let online_hud = self.online_hud.as_ref();
         let site_mode = self.site;
@@ -1207,12 +1333,20 @@ impl Game for Ember {
             } else {
                 hud_out = ui::hud(
                     ectx,
-                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels, table: &table, flies: &flies, slots: card_slots, online: online_hud },
+                    &ui::HudInput { state: &view_state, bots: &bots, busy, selected, log: &log, toast: toast.as_deref(), handoff, cinematic: self.cinematic, labels: &labels, table: &table, flies: &flies, slots: card_slots, anchors: &anchors, online: online_hud },
                 );
             }
         });
         ui_state.paint(size, output);
         self.ui_wants_pointer = ui_state.wants_pointer_input() || screen_menu;
+
+        // The live frame is stable: publish the UI probe and mirror it into a
+        // hidden DOM node for the browser-side assertions.
+        if self.probe && (self.holding || self.view.is_over()) && !self.probe_sent && self.frame > 2 {
+            let json = ui::probe_json(&view_state, self.holding);
+            site::export_probe(&json, true);
+            self.probe_sent = true;
+        }
 
         self.hover_systems = hud_out.hover_systems;
         if start {
@@ -1264,7 +1398,17 @@ impl Ember {
     fn screenshot_step(&mut self, gl: &glow::Context, size: (u32, u32), ctx: &mut Context) -> anyhow::Result<()> {
         self.frame += 1;
         let Some(path) = self.shot.clone() else { return Ok(()) };
-        if self.actions_taken >= self.shot_after && self.anim.is_none() && self.queue.is_empty() {
+        // A shot at game over must show the final standings, even if the last
+        // action's cosmetic animation never settled its view state.
+        let over = self.truth.is_over();
+        if over {
+            self.view = self.truth.clone();
+            self.anim = None;
+            self.queue.clear();
+        }
+        if (over || self.actions_taken >= self.shot_after)
+            && (over || (self.anim.is_none() && self.queue.is_empty()))
+        {
             self.shot_pending += 1;
             if self.shot_pending == 12 {
                 let (w, h) = size;
@@ -1285,5 +1429,12 @@ impl Ember {
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    App::run("Ember Reach", 1280, 720, Ember::new())
+    let args: Vec<String> = std::env::args().collect();
+    let (w, h) = arg_value(&args, "--size")
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.parse().ok()?, h.parse().ok()?))
+        })
+        .unwrap_or((1280, 720));
+    App::run("Ember Reach", w, h, Ember::new())
 }

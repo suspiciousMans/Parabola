@@ -1,7 +1,11 @@
 //! egui screens: start menu, in-game HUD (scores, hand, actions, log), game over.
 
 use egui::{self, Color32, FontFamily, FontId, RichText};
-use reach_rules::{Action, Card, Kind, Phase, Slot, State, AMBITIONS, RESOURCES, SUITS, SYSTEMS};
+use reach_rules::{Action, Card, Kind, Phase, Slot, State, AMBITIONS, COURT_CARDS, COURT_COST, COURT_VALUE, RESOURCES, SUITS, SYSTEMS};
+
+use crate::courtart;
+use crate::fieldmanual;
+use crate::guides;
 
 pub const NAMES: [&str; 4] = ["Crimson", "Azure", "Amber", "Verdant"];
 /// Player colours (sRGB): distinct but muted, so they sit on a dark board without glowing.
@@ -13,6 +17,7 @@ pub const DIM: Color32 = Color32::from_rgb(138, 146, 160);
 pub const PANEL: Color32 = Color32::from_rgba_premultiplied(10, 13, 18, 246);
 pub const HAIR: Color32 = Color32::from_rgb(54, 61, 76);
 pub const BRASS: Color32 = Color32::from_rgb(214, 164, 86);
+pub const CAPTIVE: Color32 = Color32::from_rgb(198, 108, 94);
 
 pub fn ui_color(p: usize) -> Color32 {
     let c = COLORS_UI[p];
@@ -33,9 +38,32 @@ pub fn res_color(t: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
+/// A small cup for the trophies count: destroyed enemy ships and buildings.
+fn paint_trophy(painter: &egui::Painter, r: egui::Rect, color: Color32) {
+    let c = r.center();
+    let cup = egui::Rect::from_center_size(egui::pos2(c.x, r.top() + 3.2), egui::vec2(7.2, 5.0));
+    painter.rect_filled(cup, 1.4, color);
+    painter.line_segment([egui::pos2(c.x, r.top() + 5.6), egui::pos2(c.x, r.bottom() - 1.8)], egui::Stroke::new(1.2, color));
+    painter.line_segment([egui::pos2(c.x - 2.6, r.bottom() - 1.2), egui::pos2(c.x + 2.6, r.bottom() - 1.2)], egui::Stroke::new(1.4, color));
+}
+
+/// A shackle ring for the captives count: one per enemy city taken in battle.
+fn paint_captive(painter: &egui::Painter, r: egui::Rect, color: Color32) {
+    let c = r.center();
+    painter.circle_stroke(c, 3.1, egui::Stroke::new(1.3, color));
+    painter.line_segment([egui::pos2(c.x + 2.2, c.y - 2.2), egui::pos2(c.x + 4.0, c.y - 4.0)], egui::Stroke::new(1.2, color));
+}
+
 /// Heading text: Chakra Petch. Body text is IBM Plex Sans (both SIL OFL, see assets/fonts).
 pub fn head(text: impl Into<String>, size: f32) -> RichText {
     RichText::new(text.into()).font(FontId::new(size, FontFamily::Name("head".into())))
+}
+
+// Draw a label and record it in the frame probe (text, rect, panel, layer).
+macro_rules! plabel {
+    ($ui:expr, $panel:expr, $z:expr, $role:expr, $text:expr) => {
+        crate::probe::ptext($ui, $panel, $z, $role, ($text).into())
+    };
 }
 
 /// One-time font and style setup.
@@ -85,6 +113,64 @@ pub fn panel() -> egui::Frame {
 
 pub fn card_label(c: Card) -> String {
     c.name()
+}
+
+thread_local! {
+    /// The ledger overlay: score, resources, spoils and the ambition cards.
+    static LEDGER: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+/// Opens or closes the ledger (bound to L in `main`, where the game sees keys).
+pub fn toggle_ledger() {
+    let open = LEDGER.with(|l| l.get());
+    if !open {
+        fieldmanual::close();
+        guides::close();
+    }
+    LEDGER.with(|l| l.set(!open));
+}
+
+pub fn close_ledger() -> bool {
+    LEDGER.with(|l| {
+        let was = l.get();
+        l.set(false);
+        was
+    })
+}
+
+pub fn toggle_manual() {
+    if !fieldmanual::is_open() {
+        close_ledger();
+        guides::close();
+    }
+    fieldmanual::toggle();
+}
+
+pub fn open_tutorial() {
+    close_ledger();
+    guides::close();
+    fieldmanual::open_tutorial();
+}
+
+pub fn toggle_guide() {
+    if !guides::is_open() {
+        close_ledger();
+        fieldmanual::close();
+    }
+    guides::toggle();
+}
+
+/// Escape closes the topmost overlay before it leaves the table.
+pub fn close_overlay() -> bool {
+    if fieldmanual::is_open() {
+        fieldmanual::close();
+        return true;
+    }
+    if guides::is_open() {
+        guides::close();
+        return true;
+    }
+    close_ledger()
 }
 
 pub fn sys_name(sys: usize) -> String {
@@ -142,9 +228,16 @@ pub fn menu(ctx: &egui::Context, m: &mut MenuState) -> bool {
         if ui.add_sized([306.0, 38.0], egui::Button::new(head("BEGIN", 16.0).color(Color32::from_rgb(20, 16, 10))).fill(BRASS)).clicked() {
             start = true;
         }
+        ui.add_space(8.0);
+        if ui.add_sized([306.0, 26.0], egui::Button::new(head("HOW TO PLAY", 11.0))).clicked() {
+            open_tutorial();
+        }
         ui.add_space(14.0);
-        ui.label(RichText::new("Right-drag orbit  ·  middle-drag or WASD pan  ·  wheel zoom\nQ/E turn  ·  Space overview  ·  C cinematic camera").small().color(DIM));
+        ui.label(RichText::new("Right-drag orbit  ·  middle-drag or WASD pan  ·  wheel zoom\nQ/E turn  ·  Space overview  ·  C cinematic camera\nL ledger  ·  R rules  ·  G board guide").small().color(DIM));
     });
+    if fieldmanual::is_open() {
+        fieldmanual::overlay(ctx, State::power_goal(m.players));
+    }
     start
 }
 
@@ -179,6 +272,7 @@ pub struct HudInput<'a> {
     pub table: &'a crate::cards::Table,
     pub flies: &'a [crate::cards::Fly],
     pub slots: crate::cards::Slots,
+    pub anchors: &'a guides::Anchors,
     pub online: Option<&'a OnlineHud>,
 }
 
@@ -220,6 +314,7 @@ pub fn action_text(a: Action) -> String {
             let (asl, sk, rd) = (v[3] / 49, v[3] / 7 % 7, v[3] % 7);
             format!("Battle · {} vs {} ({}A {}S {}R)", sys_name(v[1] as usize), NAMES[v[2] as usize], asl, sk, rd)
         }
+        Kind::Secure => format!("Secure {} · {} Relic", COURT_CARDS[v[1] as usize], COURT_COST),
     }
 }
 
@@ -232,11 +327,207 @@ pub fn action_systems(a: Action) -> Vec<usize> {
     }
 }
 
+/// Short seat label for tight tables (online names are chosen by players).
+fn seat_short(h: &HudInput, p: usize) -> String {
+    let name = match h.online {
+        Some(o) if o.ai[p] => NAMES[p].to_string(),
+        Some(o) => o.who[p].clone(),
+        None => NAMES[p].to_string(),
+    };
+    name.chars().take(11).collect::<String>().to_uppercase()
+}
+
+/// The ledger: every number the rules track, plus the ambition cards.
+/// Returns true when the player asks to close it.
+fn ledger(ctx: &egui::Context, h: &HudInput, s: &State, goal: i64) -> bool {
+    let mut close = false;
+    let n = s.players();
+    let screen = ctx.screen_rect();
+    egui::Area::new(egui::Id::new("ledger_veil"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (rect, resp) = ui.allocate_exact_size(screen.size(), egui::Sense::click());
+            ui.painter().rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(4, 6, 10, 242));
+            if resp.clicked() {
+                close = true;
+            }
+        });
+    crate::probe::panel("veil", 2, screen);
+    egui::Area::new(egui::Id::new("ledger"))
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            let resp = panel().inner_margin(18.0).show(ui, |ui| {
+                ui.set_width((screen.width() - 56.0).clamp(300.0, 760.0));
+                ui.horizontal(|ui| {
+                    plabel!(ui, "ledger", 3, "title", head("LEDGER", 22.0));
+                    plabel!(ui, "ledger", 3, "chapter", RichText::new(format!("chapter {}  ·  first to {goal} power", s.chapter())).small().color(DIM));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add(egui::Button::new("Close  [L]")).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(6.0);
+                let wide = ui.available_width() >= 540.0;
+
+                plabel!(ui, "ledger", 3, "title.standings", head("STANDINGS", 10.0).color(DIM));
+                if wide {
+                    egui::Grid::new("ledger_players").num_columns(12).spacing([9.0, 3.0]).show(ui, |ui| {
+                        for (hdr, full) in [
+                            ("PLAYER", "player"),
+                            ("POWER", "power / goal"),
+                            ("MAT", "Material"),
+                            ("FUEL", "Fuel"),
+                            ("WPN", "Weapons"),
+                            ("REL", "Relics"),
+                            ("PSI", "Psionic"),
+                            ("TRO", "Trophies: destroyed enemy pieces"),
+                            ("CAP", "Captives: one per enemy city destroyed in battle"),
+                            ("CITY", "Cities left to build"),
+                            ("PORT", "Starports left to build"),
+                            ("RES", "Ships in reserve"),
+                        ] {
+                            plabel!(ui, "ledger", 3, &format!("hdr.{hdr}"), head(hdr, 9.0).color(DIM)).on_hover_text(full);
+                        }
+                        ui.end_row();
+                        for p in 0..n {
+                            ui.horizontal(|ui| {
+                                let (r, _) = ui.allocate_exact_size(egui::vec2(3.0, 11.0), egui::Sense::hover());
+                                ui.painter().rect_filled(r, 0.0, ui_color(p));
+                                plabel!(ui, "ledger", 3, &format!("name.{p}"), head(seat_short(h, p), 10.0).color(if p == s.current() { INK } else { DIM }));
+                            });
+                            plabel!(ui, "ledger", 3, &format!("power.{p}"), head(format!("{}/{}", s.power(p), goal), 10.5));
+                            for t in 0..5 {
+                                plabel!(ui, "ledger", 3, &format!("res.{p}.{t}"), RichText::new(s.resource(p, t).to_string()).small());
+                            }
+                            plabel!(ui, "ledger", 3, &format!("tro.{p}"), RichText::new(s.trophies(p).to_string()).small());
+                            plabel!(ui, "ledger", 3, &format!("cap.{p}"), RichText::new(s.captives(p).to_string()).small());
+                            plabel!(ui, "ledger", 3, &format!("cities.{p}"), RichText::new(s.cities_left(p).to_string()).small());
+                            plabel!(ui, "ledger", 3, &format!("ports.{p}"), RichText::new(s.ports_left(p).to_string()).small());
+                            plabel!(ui, "ledger", 3, &format!("reserve.{p}"), RichText::new(s.reserve(p).to_string()).small());
+                            ui.end_row();
+                        }
+                    });
+                } else {
+                    for p in 0..n {
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(egui::vec2(3.0, 12.0), egui::Sense::hover());
+                            ui.painter().rect_filled(r, 0.0, ui_color(p));
+                            plabel!(ui, "ledger", 3, &format!("name.{p}"), head(seat_short(h, p), 11.0));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                plabel!(ui, "ledger", 3, &format!("power.{p}"), head(format!("{} / {}", s.power(p), goal), 12.0));
+                            });
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            for t in 0..5 {
+                                let sq = ui.allocate_exact_size(egui::vec2(5.0, 5.0), egui::Sense::hover()).1;
+                                ui.painter().rect_filled(sq.rect, 1.0, res_color(t));
+                                plabel!(ui, "ledger", 3, &format!("res.{p}.{t}"), RichText::new(format!("{} {}", RESOURCES[t], s.resource(p, t))).small().color(DIM));
+                            }
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            for (label, value) in [
+                                ("trophies", s.trophies(p)),
+                                ("captives", s.captives(p)),
+                                ("cities left", s.cities_left(p)),
+                                ("ports left", s.ports_left(p)),
+                                ("reserve", s.reserve(p)),
+                            ] {
+                                plabel!(ui, "ledger", 3, &format!("spoils.{p}.{label}"), RichText::new(format!("{value} {label}")).small().color(DIM));
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+                }
+
+                ui.add_space(8.0);
+                plabel!(ui, "ledger", 3, "title.cards", head("SCORING CARDS · THE FIVE AMBITIONS", 10.0).color(DIM));
+                let ranks = s.ambition_ranks();
+                if wide {
+                    egui::Grid::new("ledger_ambitions").num_columns(3 + n).spacing([10.0, 3.0]).show(ui, |ui| {
+                        plabel!(ui, "ledger", 3, "hdr.CARD", head("CARD", 9.0).color(DIM));
+                        plabel!(ui, "ledger", 3, "hdr.DECLARED", head("DECLARED", 9.0).color(DIM));
+                        plabel!(ui, "ledger", 3, "hdr.MARKERS", head("1ST / 2ND", 9.0).color(DIM)).on_hover_text("Power for a clear first and second place");
+                        for p in 0..n {
+                            plabel!(ui, "ledger", 3, &format!("hdr.seat.{p}"), head(seat_short(h, p), 9.0).color(DIM));
+                        }
+                        ui.end_row();
+                        for a in 0..5 {
+                            let rank = ranks[a];
+                            let vals = if rank > 0 { State::marker_values(rank as usize - 1) } else { [0, 0] };
+                            let top = (0..n).map(|p| s.ambition_tally(p, a)).max().unwrap_or(0);
+                            plabel!(ui, "ledger", 3, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.0).color(if rank > 0 { INK } else { DIM }));
+                            plabel!(ui, "ledger", 3, &format!("rank.{a}"), RichText::new(if rank > 0 { ["1st", "2nd", "3rd"][rank as usize - 1] } else { "—" }).small().color(if rank > 0 { BRASS } else { DIM }));
+                            plabel!(ui, "ledger", 3, &format!("markers.{a}"), RichText::new(if rank > 0 { format!("{}/{}", vals[0], vals[1]) } else { "—".into() }).small().color(DIM));
+                            for p in 0..n {
+                                let tally = s.ambition_tally(p, a);
+                                let leads = rank > 0 && tally > 0 && tally == top;
+                                plabel!(ui, "ledger", 3, &format!("tally.{a}.{p}"), RichText::new(tally.to_string()).small().color(if leads { BRASS } else { DIM }));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                } else {
+                    for a in 0..5 {
+                        let rank = ranks[a];
+                        ui.horizontal(|ui| {
+                            plabel!(ui, "ledger", 3, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.5).color(if rank > 0 { INK } else { DIM }));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let tag = if rank > 0 { ["1ST", "2ND", "3RD"][rank as usize - 1] } else { "—" };
+                                plabel!(ui, "ledger", 3, &format!("rank.{a}"), head(tag, 10.0).color(if rank > 0 { BRASS } else { DIM }));
+                            });
+                        });
+                        let tallies: Vec<String> = (0..n).map(|p| format!("{} {}", seat_short(h, p), s.ambition_tally(p, a))).collect();
+                        plabel!(ui, "ledger", 3, &format!("tally.{a}"), RichText::new(tallies.join("  ·  ")).small().color(DIM));
+                    }
+                }
+                ui.add_space(8.0);
+                let bank: Vec<String> = (0..5).map(|t| format!("{} {}", RESOURCES[t], s.supply(t))).collect();
+                plabel!(ui, "ledger", 3, "bank", RichText::new(format!("BANK  {}", bank.join("  ·  "))).small().color(DIM));
+                plabel!(ui, "ledger", 3, "note.trophies", RichText::new("Trophies are destroyed enemy pieces, ships and buildings. Captives are taken one per enemy city destroyed in battle. Each declared ambition pays its marker values to the highest tally.").small().color(DIM));
+                ui.add_space(8.0);
+                plabel!(ui, "ledger", 3, "title.court", head("COURT · SECURE WITH 1 RELIC", 10.0).color(DIM));
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(10.0, 4.0);
+                    for slot in 0..5 {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 5.0;
+                            match s.court_card(slot) {
+                                Some(card) => {
+                                    let (art, _) = ui.allocate_exact_size(egui::vec2(24.0, 30.0), egui::Sense::hover());
+                                    courtart::paint(ui.painter(), art, card, true, 1.0);
+                                    plabel!(ui, "ledger", 3, &format!("court.{slot}"), RichText::new(format!("{} · {} RELIC", card.name().to_uppercase(), COURT_COST)).small().color(INK))
+                                }
+                                None => plabel!(ui, "ledger", 3, &format!("court.{slot}"), RichText::new("—").small().color(DIM)),
+                            };
+                        });
+                    }
+                });
+                for p in 0..n {
+                    let secured = s.secured(p);
+                    let names: Vec<String> = secured.iter().map(|c| c.name().to_uppercase()).collect();
+                    let text = if names.is_empty() {
+                        format!("{}: none secured", seat_short(h, p))
+                    } else {
+                        format!("{}: {}", seat_short(h, p), names.join(" · "))
+                    };
+                    plabel!(ui, "ledger", 3, &format!("secured.{p}"), RichText::new(text).small().color(DIM));
+                }
+                plabel!(ui, "ledger", 3, "court.note", RichText::new(format!("Each secured card stays in its player's panel and scores {} power. Court cards are not refilled.", COURT_VALUE)).small().color(DIM));
+            });
+            crate::probe::panel("ledger", 3, resp.response.rect);
+        });
+    close
+}
+
 pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     let mut out = HudOutput::default();
     let s = h.state;
     let n = s.players();
     let cur = s.current();
+    let goal = State::power_goal(n);
 
     // ---- gate numbers over the board
     {
@@ -249,18 +540,29 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
         }
     }
 
-    crate::cards::draw_table(ctx, h.table, h.flies, &h.slots);
+    // The ledger is a modal over the table; hide the floating table cards so
+    // they cannot paint over the standings or cover the scrollable content.
+    let ledger_open = LEDGER.with(|l| l.get());
+    crate::probe::begin(ctx, ledger_open, !ledger_open && !s.is_over());
+    if !ledger_open && !s.is_over() {
+        crate::cards::draw_table(ctx, h.table, h.flies, &h.slots);
+    }
 
-    // ---- players (left): who is ahead, what they hold
+    // ---- players (left): score, resources and spoils at a glance
     egui::Area::new(egui::Id::new("players")).anchor(egui::Align2::LEFT_TOP, [14.0, 14.0]).show(ctx, |ui| {
-        ui.set_width(236.0);
-        panel().inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
+        // Leave room for the 220-point chapter panel on phones; a secured line
+        // must not widen the standings enough to cover it.
+        let left_w = if ctx.screen_rect().width() < 620.0 { 203.0 } else { 248.0 };
+        ui.set_width(left_w);
+        ui.set_max_width(left_w);
+        let resp = panel().inner_margin(egui::Margin::symmetric(12.0, 8.0)).show(ui, |ui| {
+            ui.set_max_width(left_w - 24.0);
             for p in 0..n {
                 let active = p == cur && !s.is_over();
                 let top = ui.cursor().min;
                 crate::cards::note_row(p, egui::pos2(top.x + 120.0, top.y + 17.0));
                 ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(egui::vec2(if active { 5.0 } else { 3.0 }, 34.0), egui::Sense::hover());
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(if active { 5.0 } else { 3.0 }, 54.0), egui::Sense::hover());
                     ui.painter().rect_filled(r, 0.0, ui_color(p).gamma_multiply(if active { 1.0 } else { 0.6 }));
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
@@ -269,53 +571,199 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                                 Some(o) => format!("{}{}", o.who[p].to_uppercase(), if p == o.me { "  YOU" } else { "" }),
                                 None => format!("{}{}", NAMES[p].to_uppercase(), if h.bots[p] { "  BOT" } else { "" }),
                             };
-                            ui.label(head(nm, 13.0).color(if active { INK } else { DIM }));
+                            plabel!(ui, "standings", 1, &format!("name.{p}"), head(nm, 13.0).color(if active { INK } else { DIM }));
                             if s.initiative() == p {
-                                ui.label(head("LEAD", 10.5).color(BRASS));
+                                plabel!(ui, "standings", 1, &format!("lead.{p}"), head("LEAD", 10.5).color(BRASS));
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(head(s.power(p).to_string(), 20.0));
+                                plabel!(ui, "standings", 1, &format!("goal.{p}"), RichText::new(format!("/{goal}")).small().color(DIM));
+                                plabel!(ui, "standings", 1, &format!("power.{p}"), head(s.power(p).to_string(), 20.0))
+                                    .on_hover_text(format!("Power — the score. First to {goal} ends the game after a chapter."));
                             });
+                        });
+                        // score track towards the power goal
+                        let w = ui.available_width().max(40.0);
+                        let (track, _) = ui.allocate_exact_size(egui::vec2(w, 3.0), egui::Sense::hover());
+                        ui.painter().rect_filled(track, 0.0, HAIR);
+                        let done = (s.power(p) as f32 / goal.max(1) as f32).clamp(0.0, 1.0);
+                        if done > 0.0 {
+                            let fill = egui::Rect::from_min_size(track.min, egui::vec2(track.width() * done, track.height()));
+                            ui.painter().rect_filled(fill, 0.0, ui_color(p));
+                        }
+                        ui.add_space(2.0);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 5.0;
+                            for t in 0..5 {
+                                let sq = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover()).1;
+                                ui.painter().rect_filled(sq.rect, 1.0, res_color(t));
+                                plabel!(ui, "standings", 1, &format!("res.{p}.{t}"), RichText::new(s.resource(p, t).to_string()).small().color(DIM))
+                                    .on_hover_text(format!("{} {}  ·  bank {}", RESOURCES[t], s.resource(p, t), s.supply(t)));
+                                ui.add_space(2.0);
+                            }
                         });
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.0;
-                            for t in 0..5 {
-                                let (r, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
-                                ui.painter().rect_filled(r, 1.0, res_color(t));
-                                ui.label(RichText::new(s.resource(p, t).to_string()).small().color(DIM));
-                                ui.add_space(3.0);
-                            }
+                            let tro = s.trophies(p);
+                            let (tr, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                            paint_trophy(ui.painter(), tr, if tro > 0 { BRASS } else { DIM });
+                            plabel!(ui, "standings", 1, &format!("tro.{p}"), RichText::new(format!("TROPHIES {}", tro)).small().color(if tro > 0 { INK } else { DIM }))
+                                .on_hover_text("Destroyed enemy pieces");
+                            ui.add_space(4.0);
+                            let cap = s.captives(p);
+                            let (cr, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                            paint_captive(ui.painter(), cr, if cap > 0 { CAPTIVE } else { DIM });
+                            plabel!(ui, "standings", 1, &format!("cap.{p}"), RichText::new(format!("CAPTIVES {}", cap)).small().color(if cap > 0 { INK } else { DIM }))
+                                .on_hover_text("One per enemy city destroyed in battle");
                         });
+                        let secured = s.secured(p);
+                        let names: Vec<&str> = secured.iter().map(|c| c.name()).collect();
+                        let text = if names.is_empty() {
+                            "SECURED —".to_string()
+                        } else {
+                            format!("SECURED  {}", names.join(" · "))
+                        };
+                        crate::probe::ptext_wrap(ui, "standings", 1, &format!("secure.{p}"), RichText::new(text).small().color(if names.is_empty() { DIM } else { BRASS }))
+                            .on_hover_text("Court cards secured with Relics; each is permanent +1 power");
                     });
                 });
                 if p + 1 < n {
-                    ui.add_space(2.0);
+                    ui.add_space(4.0);
                 }
             }
+
+            ui.add_space(7.0);
+            let court_title = if s.is_over() { "COURT · SECURED CARDS KEPT" } else { "COURT · CLICK A CARD · 1 RELIC" };
+            let narrow = ctx.screen_rect().width() < 620.0;
+            plabel!(ui, "standings", 1, "court.title", head(court_title, if narrow { 8.0 } else { 9.0 }).color(DIM));
+            ui.add_space(3.0);
+            let legal = s.legal_actions();
+            let can_act = !s.is_over() && !h.busy && !h.bots[cur];
+            let cw = if narrow { 33.0 } else { 41.0 };
+            let art_h = if narrow { 27.0 } else { 34.0 };
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(if narrow { 2.0 } else { 4.0 }, 0.0);
+                for slot in 0..5 {
+                    let action = Action([15, slot as i64, 0, 0]);
+                    let enabled = can_act && legal.contains(&action);
+                    let card = s.court_card(slot);
+                    let tile = ui.allocate_ui_with_layout(
+                        egui::vec2(cw, if narrow { 42.0 } else { 50.0 }),
+                        egui::Layout::top_down(egui::Align::Center),
+                        |ui| {
+                            ui.set_max_width(cw);
+                            let (art, _) = ui.allocate_exact_size(egui::vec2(cw, art_h), egui::Sense::hover());
+                            match card {
+                                Some(c) => courtart::paint(ui.painter(), art, c, enabled, 1.0),
+                                None => {
+                                    ui.painter().rect_filled(art, 2.0, Color32::from_rgb(19, 21, 28));
+                                    ui.painter().rect_stroke(art, 2.0, egui::Stroke::new(1.0, HAIR));
+                                }
+                            }
+                            match card {
+                                Some(c) => plabel!(ui, "standings", 1, &format!("court.{slot}"), head(c.name().to_uppercase(), if narrow { 6.0 } else { 7.0 }).color(if enabled { INK } else { DIM })),
+                                None => plabel!(ui, "standings", 1, &format!("court.{slot}"), head("—", 8.0).color(DIM)),
+                            };
+                        },
+                    );
+                    let resp = tile.response.interact(egui::Sense::click());
+                    if enabled && resp.clicked() {
+                        out.action = Some(action);
+                    }
+                    if let Some(c) = card {
+                        if enabled {
+                            resp.on_hover_text(format!("Secure {} · 1 Relic → +1 power. No action pip; the row is not refilled.", c.name()));
+                        } else {
+                            resp.on_hover_text(format!("{} · secure with 1 Relic on your action step", c.name()));
+                        }
+                    }
+                }
+            });
         });
+        crate::probe::panel("standings", 1, resp.response.rect);
     });
 
-    // ---- chapter and ambitions (right)
+    // ---- chapter and ambition cards (right)
+    let panel_id = if s.is_over() { "ambitions_final" } else { "ambitions" };
     egui::Area::new(egui::Id::new("chapter")).anchor(egui::Align2::RIGHT_TOP, [-14.0, 14.0]).show(ctx, |ui| {
-        ui.set_width(170.0);
-        ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
-            ui.label(head(format!("CHAPTER {} OF 5", s.chapter()), 14.0));
-            let ranks = s.ambition_ranks();
-            let mut declared: Vec<(i64, usize)> = (0..5).filter(|&a| ranks[a] > 0).map(|a| (ranks[a], a)).collect();
-            declared.sort();
-            if declared.is_empty() {
-                ui.label(RichText::new("no ambitions declared").small().color(DIM));
-            }
-            for (r, a) in declared {
-                ui.label(RichText::new(format!("{}  {}", ["FIRST", "SECOND", "THIRD"][r as usize - 1], AMBITIONS[a])).small().color(BRASS));
-            }
+        ui.set_width(220.0);
+        let resp = panel().inner_margin(egui::Margin::symmetric(12.0, 10.0)).show(ui, |ui| {
+            ui.set_width(196.0);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                if s.is_over() {
+                    plabel!(ui, "ambitions_final", 1, "title.cards", head("SCORING CARDS · THE FIVE AMBITIONS", 9.0).color(DIM));
+                    ui.add_space(4.0);
+                    plabel!(ui, "ambitions_final", 1, "final", head("FINAL CHAPTER SCORED", 14.0));
+                    plabel!(ui, "ambitions_final", 1, "final_note", RichText::new("Ambition markers are cleared after scoring.").small().color(DIM));
+                    ui.add_space(3.0);
+                    plabel!(ui, "ambitions_final", 1, "scoring_note", RichText::new("Tyrant counts captives  ·  Warlord counts trophies").small().color(DIM));
+                    ui.add_space(4.0);
+                    plabel!(ui, "ambitions_final", 1, "court", RichText::new("COURT · secured cards kept").small().color(DIM));
+                    return;
+                }
+                plabel!(ui, panel_id, 1, "chapter", head(format!("CHAPTER {} OF 5", s.chapter()), 14.0));
+                plabel!(ui, panel_id, 1, "goal", RichText::new(format!("first to {goal} power")).small().color(DIM));
+                ui.add_space(3.0);
+                plabel!(ui, panel_id, 1, "title.cards", head("SCORING CARDS · THE FIVE AMBITIONS", 9.0).color(DIM));
+                ui.add_space(2.0);
+                let ranks = s.ambition_ranks();
+                // Two cards per row, so the strip stays above the table.
+                for row in 0..3 {
+                    ui.horizontal(|ui| {
+                        for a in row * 2..(row * 2 + 2).min(5) {
+                            let rank = ranks[a];
+                            let tally: Vec<i64> = (0..n).map(|p| s.ambition_tally(p, a)).collect();
+                            let top = tally.iter().copied().max().unwrap_or(0);
+                            let leaders: Vec<usize> = (0..n).filter(|&p| top > 0 && tally[p] == top).collect();
+                            let note = if rank == 0 {
+                                "not declared".to_string()
+                            } else if top == 0 {
+                                "no tally yet".to_string()
+                            } else if leaders.len() == 1 {
+                                format!("{}  {}", seat_short(h, leaders[0]), top)
+                            } else {
+                                format!("TIE  {top}")
+                            };
+                            ui.vertical(|ui| {
+                                ui.set_width(92.0);
+                                ui.horizontal(|ui| {
+                                    plabel!(ui, panel_id, 1, &format!("amb.{a}"), head(AMBITIONS[a].to_uppercase(), 10.0).color(if rank > 0 { INK } else { DIM }));
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        let tag = if rank > 0 { ["1ST", "2ND", "3RD"][rank as usize - 1] } else { "—" };
+                                        plabel!(ui, panel_id, 1, &format!("rank.{a}"), head(tag, 9.0).color(if rank > 0 { BRASS } else { DIM }));
+                                    });
+                                });
+                                plabel!(ui, panel_id, 1, &format!("leader.{a}"), RichText::new(note).small().color(DIM));
+                            });
+                        }
+                    });
+                }
+                plabel!(ui, panel_id, 1, "court", RichText::new(format!("COURT · {} available · {} relic each", s.court_available(), COURT_COST)).small().color(DIM));
+                ui.add_space(5.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    if ui.add_sized([94.0, 22.0], egui::Button::new(head(if guides::is_open() { "GUIDE ON [G]" } else { "GUIDE [G]" }, 9.0))).clicked() {
+                        toggle_guide();
+                    }
+                    if ui.add_sized([94.0, 22.0], egui::Button::new(head("RULES [R]", 9.0))).clicked() {
+                        open_tutorial();
+                    }
+                });
+                if ui.add_sized([192.0, 22.0], egui::Button::new(head("LEDGER  [L]", 10.0))).clicked() {
+                    LEDGER.with(|l| l.set(true));
+                }
+            });
         });
+        crate::probe::panel(panel_id, 1, resp.response.rect);
     });
 
-    // ---- log (bottom-left), quiet
-    egui::Area::new(egui::Id::new("log")).anchor(egui::Align2::LEFT_BOTTOM, [14.0, -12.0]).show(ctx, |ui| {
-        ui.set_max_width(300.0);
-        for (i, line) in h.log.iter().rev().take(5).rev().enumerate() {
+    // ---- log (above the hand), quiet. It sits below the HUD panels so a
+    // played card or a long event line can never cover the hand's buttons.
+    egui::Area::new(egui::Id::new("log"))
+        .order(egui::Order::Background)
+        .anchor(egui::Align2::LEFT_BOTTOM, [14.0, -218.0])
+        .show(ctx, |ui| {
+        ui.set_max_width(280.0);
+        for (i, line) in h.log.iter().rev().take(4).rev().enumerate() {
             let fade = 90 + i as u8 * 30;
             ui.label(RichText::new(line).small().color(Color32::from_gray(fade.min(170))));
         }
@@ -331,19 +779,39 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
 
     // ---- game over
     if s.is_over() {
-        egui::Area::new(egui::Id::new("over")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            panel().inner_margin(24.0).show(ui, |ui| {
+        LEDGER.with(|l| l.set(false));
+        // Sit below the HUD's court row and final-scoring panel so neither is
+        // hidden by the result card on a short screen.
+        egui::Area::new(egui::Id::new("over")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -104.0]).show(ctx, |ui| {
+            let resp = panel().inner_margin(24.0).show(ui, |ui| {
                 let w = s.winner();
-                ui.label(head(format!("{} WINS", NAMES[w].to_uppercase()), 30.0).color(ui_color(w)));
-                ui.add_space(8.0);
-                for p in 0..n {
-                    ui.label(RichText::new(format!("{}   {} power", NAMES[p], s.power(p))).color(if p == w { INK } else { DIM }));
-                }
+                plabel!(ui, "game_over", 3, "winner", head(format!("{} WINS", seat_short(h, w)), 30.0).color(ui_color(w)));
+                plabel!(ui, "game_over", 3, "chapter", RichText::new(format!("chapter {}  ·  first to {goal} power", s.chapter())).small().color(DIM));
+                ui.add_space(10.0);
+                egui::Grid::new("over_standings").num_columns(4).spacing([18.0, 4.0]).show(ui, |ui| {
+                    for hdr in ["PLAYER", "POWER", "RESOURCES", "SPOILS"] {
+                        plabel!(ui, "game_over", 3, &format!("hdr.{hdr}"), head(hdr, 9.5).color(DIM));
+                    }
+                    ui.end_row();
+                    for p in 0..n {
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(egui::vec2(3.0, 12.0), egui::Sense::hover());
+                            ui.painter().rect_filled(r, 0.0, ui_color(p));
+                            plabel!(ui, "game_over", 3, &format!("name.{p}"), head(seat_short(h, p), 12.0).color(if p == w { INK } else { DIM }));
+                        });
+                        plabel!(ui, "game_over", 3, &format!("power.{p}"), head(format!("{} / {}", s.power(p), goal), 12.0));
+                        let res: i64 = (0..5).map(|t| s.resource(p, t)).sum();
+                        plabel!(ui, "game_over", 3, &format!("resources.{p}"), RichText::new(res.to_string()).small());
+                        plabel!(ui, "game_over", 3, &format!("spoils.{p}"), RichText::new(format!("{} trophies  ·  {} captives", s.trophies(p), s.captives(p))).small());
+                        ui.end_row();
+                    }
+                });
                 ui.add_space(12.0);
                 if ui.button("New game").clicked() {
                     out.new_game = true;
                 }
             });
+            crate::probe::panel("game_over", 3, resp.response.rect);
         });
         out.wants_pointer = ctx.wants_pointer_input();
         return out;
@@ -365,9 +833,23 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
     }
 
     // ---- bottom: what to do now, then the hand and its plays
+    // The guide is a reading mode: the hand and action strip step aside so the
+    // labels can stay clear of the controls they describe.
+    if !guides::is_open() {
     let human = !h.bots[cur];
     egui::Area::new(egui::Id::new("hand")).anchor(egui::Align2::CENTER_BOTTOM, [0.0, -14.0]).show(ctx, |ui| {
-        ui.set_width((ctx.screen_rect().width() - 560.0).clamp(520.0, 900.0));
+        // On a narrow window the hand uses almost the full width; on a wide one
+        // it stays centred and clear of the players panel.
+        let hand_w = (ctx.screen_rect().width() - 28.0).clamp(300.0, 900.0);
+        ui.set_width(hand_w);
+        ui.set_max_width(hand_w);
+        // Narrow screens stack the card actions under each card; tightening the
+        // rows keeps the hand from rising over the table.
+        if ctx.screen_rect().width() < 900.0 {
+            ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
+            ui.spacing_mut().interact_size.y = 24.0;
+            ui.spacing_mut().item_spacing.y = 4.0;
+        }
         let status = match (s.phase(), human) {
             (_, false) => match h.online {
                 Some(o) if !o.ai[cur] => format!("Waiting for {}", o.who[cur]),
@@ -385,14 +867,14 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
             _ => String::new(),
         };
         panel().inner_margin(egui::Margin::symmetric(12.0, 6.0)).show(ui, |ui| {
-            ui.label(head(status, 15.0).color(if human { BRASS } else { DIM }));
+            ui.add(egui::Label::new(head(status, 15.0).color(if human { BRASS } else { DIM })).wrap());
         });
         ui.add_space(6.0);
         if human && !h.busy {
             let acts = s.legal_actions();
             let show = |ui: &mut egui::Ui, a: Action, out: &mut HudOutput| {
                 let sys = action_systems(a);
-                let b = ui.button(action_text(a));
+                let b = ui.add(egui::Button::new(action_text(a)).wrap());
                 if b.hovered() {
                     out.hover_systems = sys;
                 }
@@ -407,6 +889,11 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                 }
                 ui.horizontal_wrapped(|ui| {
                     for a in acts.iter().copied() {
+                        // Court cards are the clickable art tiles below the
+                        // standings; do not duplicate them as text buttons.
+                        if a.0[0] == 15 {
+                            continue;
+                        }
                         let sys = action_systems(a);
                         match h.selected {
                             Some(sel) if !sys.is_empty() && !sys.contains(&sel) => continue,
@@ -417,11 +904,22 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                     }
                 });
             } else {
-                ui.horizontal(|ui| {
-                    let now = ctx.input(|i| i.time);
-                    let mut seen = Vec::new();
-                    for (i, c) in s.hand(cur).into_iter().enumerate() {
+                let now = ctx.input(|i| i.time);
+                let mut seen = Vec::new();
+                let cards = s.hand(cur);
+                let narrow = ctx.screen_rect().width() < 620.0;
+                let mut render = |ui: &mut egui::Ui, centre: bool| {
+                    if centre {
+                        // A one-card hand would otherwise sit in the far-left
+                        // corner, under the Administration panel.
+                        let row_w = cards.len().min(6) as f32 * (crate::cards::CARD_W + 4.0);
+                        ui.add_space(((ui.available_width() - row_w) * 0.5).max(0.0));
+                    }
+                    for (i, c) in cards.iter().copied().enumerate() {
                         ui.vertical(|ui| {
+                            // Actions wrap inside a card's column instead of
+                            // pushing the whole hand off a narrow screen.
+                            ui.set_max_width(crate::cards::CARD_W);
                             let r = crate::cards::hand_card(ui, c, i, now, &mut seen);
                             let mine: Vec<Action> = acts.iter().copied().filter(|a| a.card() == Some(c)).collect();
                             if r.clicked() && mine.len() == 1 {
@@ -432,17 +930,43 @@ pub fn hud(ctx: &egui::Context, h: &HudInput) -> HudOutput {
                             }
                         });
                     }
-                    crate::cards::end_hand_frame(&seen);
-                });
-                ui.horizontal(|ui| {
-                    for a in acts.iter().copied().filter(|a| a.card().is_none()) {
+                };
+                if narrow {
+                    // Six 96-point cards cannot fit a phone width; keep one row
+                    // and let the hand scroll rather than spill off screen.
+                    egui::ScrollArea::horizontal()
+                        .id_salt("hand_scroll")
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| ui.horizontal(|ui| render(ui, false)));
+                } else {
+                    ui.horizontal_wrapped(|ui| render(ui, true));
+                }
+                crate::cards::end_hand_frame(&seen);
+                ui.horizontal_wrapped(|ui| {
+                    for a in acts.iter().copied().filter(|a| a.card().is_none() && a.0[0] != 15) {
                         show(ui, a, &mut out);
                     }
                 });
             }
         }
     });
-    out.wants_pointer = ctx.wants_pointer_input();
+    }
+    if ledger_open {
+        if ledger(ctx, h, s, goal) {
+            LEDGER.with(|l| l.set(false));
+        }
+        out.wants_pointer = true;
+    } else {
+        out.wants_pointer = ctx.wants_pointer_input();
+    }
+    if guides::is_open() {
+        guides::draw(ctx, h.anchors, goal);
+        out.wants_pointer = true;
+    }
+    if fieldmanual::is_open() {
+        fieldmanual::overlay(ctx, goal);
+        out.wants_pointer = true;
+    }
     out
 }
 
@@ -462,8 +986,15 @@ pub fn describe(e: [i64; 5], names: &[&str; 4]) -> Option<String> {
         12 => format!("{} moves {} ships {} to {}", nm(e[1]), e[4], sys_name(e[2] as usize), sys_name(e[3] as usize)),
         13 => format!("{} repairs at {}", nm(e[1]), sys_name(e[2] as usize)),
         14 => format!("{} attacks {} at {}", nm(e[1]), nm(e[3]), sys_name(e[2] as usize)),
+        15 => format!("{} secures {} (+{} power)", nm(e[1]), COURT_CARDS[e[3] as usize], COURT_VALUE),
         20 => format!("Round over, {} holds the initiative", nm(e[1])),
         21 => format!("Chapter {} scored", e[1]),
         _ => return None,
     })
+}
+
+/// The current frame's rendered text, geometry, layer order and rules values.
+/// The browser build mirrors this JSON into the page for automated checks.
+pub fn probe_json(s: &State, held: bool) -> String {
+    crate::probe::json(s, held)
 }

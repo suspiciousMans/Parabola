@@ -3,8 +3,10 @@
 // Needs Playwright (preinstalled in CI image). Passes only if the runtime
 // initialises, no JS error/abort is reported, and the canvas has drawn
 // something that is not a single flat colour.
-const { chromium } = require('playwright');
-const http = require('http'), fs = require('fs'), path = require('path');
+import { chromium } from 'playwright';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 const [dirArg, app, out] = process.argv.slice(2);
 const dir = path.resolve(dirArg);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream' };

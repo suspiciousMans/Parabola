@@ -7,12 +7,32 @@
   canvas{display:block;width:100vw;height:100vh;outline:none}
   #status{position:fixed;left:12px;top:12px}
 </style>
+<style id="size-style"></style>
 <div id="status">Loading…</div>
 <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <script>
   // ?app=<name> picks which built game to load (default: the file name in data-app).
   const q = new URLSearchParams(location.search);
   const app = q.get('app') || 'ember_reach';
+  if (q.get('probe')) window.__reachProbeName = q.get('probe');
+  const cssSize = q.get('css');
+  if (cssSize) {
+    const [cw, ch] = cssSize.split('x').map(Number);
+    if (cw > 0 && ch > 0) {
+      document.getElementById('size-style').textContent =
+        `canvas{width:${cw}px !important;height:${ch}px !important;}`;
+    }
+  }
+  // The engine's SDL bridge takes button positions from the last mousemove.
+  // A click can arrive without one (touchpads, automation, synthetic taps),
+  // which would press wherever the pointer last was; replay it as motion.
+  const canvasEl = document.getElementById('canvas');
+  window.addEventListener('mousedown', event => {
+    if (event.target !== canvasEl) return;
+    canvasEl.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, view: window, clientX: event.clientX, clientY: event.clientY, buttons: 0,
+    }));
+  }, true);
   window.DUST = { ready: false, errors: [] };
   var Module = {
     canvas: document.getElementById('canvas'),

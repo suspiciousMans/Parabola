@@ -7,7 +7,7 @@ use dust_engine::glam::{Mat4, Vec3, Vec4};
 pub const MIN_PITCH: f32 = 0.45; // ~25 deg
 pub const MAX_PITCH: f32 = 1.45; // ~83 deg
 pub const MIN_DIST: f32 = 5.0;
-pub const MAX_DIST: f32 = 48.0;
+pub const MAX_DIST: f32 = 80.0;
 pub const PAN_LIMIT: f32 = 13.0;
 
 pub struct BoardCamera {
@@ -18,10 +18,18 @@ pub struct BoardCamera {
     t: f32,
     goal_pitch: f32,
     goal_dist: f32,
+    /// Overview distance that fits this window; updated as the aspect changes.
+    pub overview_dist: f32,
+    /// True while the camera is in overview, so a resize re-fits the board.
+    auto_fit: bool,
 }
 
 const OVERVIEW_PITCH: f32 = 1.05; // 55 deg
 const OVERVIEW_DIST: f32 = 30.0;
+/// Half the board's width and its foreshortened depth. The overview distance
+/// fits both, so a narrow window sees the whole table instead of a crop.
+const BOARD_HALF_W: f32 = 16.0;
+const BOARD_HALF_D: f32 = 10.9;
 
 impl BoardCamera {
     pub fn new() -> Self {
@@ -33,18 +41,42 @@ impl BoardCamera {
         cam.fov_y_radians = 40f32.to_radians();
         cam.near = 0.5;
         cam.far = 420.0;
-        Self { goal_target: Vec3::ZERO, goal_yaw: 0.0, base_yaw: 0.0, t: 0.0, goal_pitch: OVERVIEW_PITCH, goal_dist: OVERVIEW_DIST, cam }
+        Self {
+            goal_target: Vec3::ZERO,
+            goal_yaw: 0.0,
+            base_yaw: 0.0,
+            t: 0.0,
+            goal_pitch: OVERVIEW_PITCH,
+            goal_dist: OVERVIEW_DIST,
+            overview_dist: OVERVIEW_DIST,
+            auto_fit: true,
+            cam,
+        }
     }
 
     pub fn overview(&mut self) {
         self.goal_target = Vec3::ZERO;
         self.goal_pitch = OVERVIEW_PITCH;
-        self.goal_dist = OVERVIEW_DIST;
+        self.auto_fit = true;
+        self.goal_dist = self.overview_dist;
+    }
+
+    /// Pulls the overview back until the whole board fits this aspect. Only the
+    /// overview follows the window; a focused or zoomed camera is left alone.
+    pub fn fit(&mut self, aspect: f32) {
+        let tan_half = (self.cam.fov_y_radians * 0.5).tan();
+        let aspect = aspect.max(0.2);
+        let fit = (BOARD_HALF_W / (tan_half * aspect)).max(BOARD_HALF_D / tan_half);
+        self.overview_dist = fit.clamp(20.0, MAX_DIST);
+        if self.auto_fit {
+            self.goal_dist = self.overview_dist;
+        }
     }
 
     pub fn focus(&mut self, p: Vec3) {
         self.goal_target = Self::clamp_target(Vec3::new(p.x, 0.0, p.z));
         self.goal_dist = self.goal_dist.min(11.0);
+        self.auto_fit = false;
     }
 
     /// Cinematic glide: eased move to `p` at distance `d`, optionally with a new pitch.
@@ -52,10 +84,12 @@ impl BoardCamera {
         self.goal_target = Self::clamp_target(Vec3::new(p.x, 0.0, p.z));
         self.goal_dist = d.clamp(MIN_DIST, MAX_DIST);
         self.goal_pitch = pitch.clamp(MIN_PITCH, MAX_PITCH);
+        self.auto_fit = false;
     }
 
     pub fn set_distance(&mut self, d: f32) {
         self.goal_dist = d.clamp(MIN_DIST, MAX_DIST);
+        self.auto_fit = false;
     }
 
     pub fn orbit(&mut self, dx_px: f32, dy_px: f32) {
@@ -69,6 +103,7 @@ impl BoardCamera {
 
     pub fn zoom(&mut self, wheel: f32) {
         self.goal_dist = (self.goal_dist * (1.0 - wheel * 0.09)).clamp(MIN_DIST, MAX_DIST);
+        self.auto_fit = false;
     }
 
     /// `right`/`forward` in -1..1 (keys) or world units scaled by distance (drag).
@@ -163,6 +198,17 @@ mod tests {
         let (o, d) = c.ray((400.0, 300.0), (800.0, 600.0), 800.0 / 600.0);
         let hit = ray_plane(o, d, 0.0).unwrap();
         assert!(hit.length() < 0.05, "{hit:?}");
+    }
+
+    #[test]
+    fn overview_fits_narrow_windows() {
+        let mut c = BoardCamera::new();
+        c.fit(1280.0 / 720.0);
+        let wide = c.overview_dist;
+        c.fit(720.0 / 936.0);
+        assert!(c.overview_dist > wide * 1.8, "{wide} -> {}", c.overview_dist);
+        c.update(10.0);
+        assert!((c.cam.distance - c.overview_dist).abs() < 0.05);
     }
 
     #[test]

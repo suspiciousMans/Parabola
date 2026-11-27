@@ -43,6 +43,9 @@ fn from_dv(d: Dv) -> Vec<i64> {
 pub const RESOURCES: [&str; 5] = ["Material", "Fuel", "Weapons", "Relics", "Psionic"];
 pub const SUITS: [&str; 4] = ["Administration", "Aggression", "Construction", "Mobilization"];
 pub const AMBITIONS: [&str; 5] = ["Tycoon", "Tyrant", "Warlord", "Keeper", "Empath"];
+pub const COURT_CARDS: [&str; 5] = ["Envoy", "Seal", "Writ", "Pact", "Accord"];
+pub const COURT_COST: i64 = 1; // Relics
+pub const COURT_VALUE: i64 = 1; // power per secured court card
 
 const P_BASE: usize = 40;
 const P_STRIDE: usize = 20;
@@ -71,6 +74,7 @@ pub enum Kind {
     Move,
     Repair,
     Battle,
+    Secure,
 }
 
 impl Action {
@@ -90,6 +94,8 @@ impl Action {
             11 => Kind::BuildShips,
             12 => Kind::Move,
             13 => Kind::Repair,
+            14 => Kind::Battle,
+            15 => Kind::Secure,
             _ => Kind::Battle,
         }
     }
@@ -127,6 +133,20 @@ impl Card {
     }
     pub fn name(self) -> String {
         format!("{} {}", SUITS[self.suit()], self.number())
+    }
+}
+
+/// Court card ids 0..5, matching their slot in the face-up row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CourtCard(pub u8);
+
+impl CourtCard {
+    pub fn name(self) -> &'static str {
+        COURT_CARDS[self.0 as usize]
+    }
+    pub fn value(self) -> i64 {
+        let _ = self;
+        COURT_VALUE
     }
 }
 
@@ -233,6 +253,27 @@ impl State {
     pub fn captives(&self, p: usize) -> i64 {
         self.pf(p, 10)
     }
+    /// First and second place values of an ambition in declaration order (0 = first).
+    pub fn marker_values(rank: usize) -> [i64; 2] {
+        let v = from_dv(ox::marker_values(Dv::Int(rank as i64)));
+        [v[0], v[1]]
+    }
+    /// Power that ends the game after a chapter: 33 for 2 players, 30 for 3, 27 for 4.
+    pub fn power_goal(players: usize) -> i64 {
+        ox::power_goal(Dv::Int(players as i64)).as_i64()
+    }
+    /// A player's tally for ambition `a` (0 Tycoon .. 4 Empath), scored as the rules do.
+    /// Read straight from the fields (the UI asks every frame); the test below
+    /// keeps these formulas equal to `amb_tally` in the rules.
+    pub fn ambition_tally(&self, p: usize, a: usize) -> i64 {
+        match a {
+            0 => self.resource(p, 0) + self.resource(p, 1),
+            1 => self.captives(p),
+            2 => self.trophies(p),
+            3 => self.resource(p, 3),
+            _ => self.resource(p, 4),
+        }
+    }
     pub fn hand(&self, p: usize) -> Vec<Card> {
         let m = self.pf(p, 11);
         (0..28u8).filter(|c| (m >> c) & 1 == 1).map(Card).collect()
@@ -240,6 +281,34 @@ impl State {
     pub fn last_card(&self, p: usize) -> Option<Card> {
         let c = self.pf(p, 14);
         (c >= 0).then_some(Card(c as u8))
+    }
+    /// The five face-up Court cards, `None` once a slot is secured.
+    pub fn court_row(&self) -> [Option<CourtCard>; 5] {
+        std::array::from_fn(|i| {
+            let c = self.h(35 + i);
+            (c >= 0).then_some(CourtCard(c as u8))
+        })
+    }
+    pub fn court_card(&self, slot: usize) -> Option<CourtCard> {
+        if slot >= 5 {
+            return None;
+        }
+        let c = self.h(35 + slot);
+        (c >= 0).then_some(CourtCard(c as u8))
+    }
+    pub fn court_available(&self) -> usize {
+        self.court_row().iter().flatten().count()
+    }
+    /// Court cards a player has secured; the mask is public, like trophies.
+    pub fn secured(&self, p: usize) -> Vec<CourtCard> {
+        let mask = self.pf(p, 15);
+        (0..COURT_CARDS.len() as u8)
+            .filter(|&c| (mask >> c) & 1 == 1)
+            .map(CourtCard)
+            .collect()
+    }
+    pub fn has_secured(&self, p: usize, c: CourtCard) -> bool {
+        (self.pf(p, 15) >> c.0) & 1 == 1
     }
     pub fn supply(&self, t: usize) -> i64 {
         self.0[SUPPLY_BASE + t]
@@ -342,6 +411,22 @@ mod tests {
     }
 
     #[test]
+    fn score_values_match_the_rules() {
+        assert_eq!(State::power_goal(2), 33);
+        assert_eq!(State::power_goal(3), 30);
+        assert_eq!(State::power_goal(4), 27);
+        assert_eq!(State::marker_values(0), [5, 3]);
+        assert_eq!(State::marker_values(2), [2, 0]);
+        let s = State::new(3, 42, 0);
+        for p in 0..3 {
+            for a in 0..5 {
+                let rules = ox::amb_tally(to_dv(&s.0), Dv::Int(p as i64), Dv::Int(a as i64)).as_i64();
+                assert_eq!(s.ambition_tally(p, a), rules, "player {p}, ambition {a}");
+            }
+        }
+    }
+
+    #[test]
     fn same_seed_same_game() {
         assert_eq!(State::new(4, 9, 1), State::new(4, 9, 1));
         assert_ne!(State::new(4, 9, 1), State::new(4, 10, 1));
@@ -379,4 +464,72 @@ mod tests {
         assert!(validate(&s, 1 - s.current(), a).is_err());
         assert!(validate(&s, s.current(), Action([99, 0, 0, 0])).is_err());
     }
+
+    #[test]
+    fn court_row_and_securing_match_the_rules() {
+        let mut s = State::new(3, 11, 0);
+        assert_eq!(s.court_row().len(), 5);
+        assert!(s.court_row().iter().all(Option::is_some));
+        assert!(s.secured(0).is_empty());
+        // Put player 0 in the action step with one Relic.
+        s.0[2] = 2; // phase Act
+        s.0[3] = 0; // current player 0
+        s.0[11] = 0; // no action pips required for the Court action
+        s.0[P_BASE + 4] = 1; // Relics
+        let a = Action([15, 0, 0, 0]);
+        assert!(s.legal_actions().contains(&a));
+        let before = s.power(0);
+        let t = s.apply(a);
+        assert_eq!(t.court_card(0), None);
+        assert_eq!(t.resource(0, 3), 0);
+        assert_eq!(t.power(0), before + COURT_VALUE);
+        assert_eq!(t.secured(0), vec![CourtCard(0)]);
+        assert!(t.has_secured(0, CourtCard(0)));
+        assert_eq!(CourtCard(0).name(), COURT_CARDS[0]);
+    }
+
+    #[test]
+    fn court_action_needs_a_relic() {
+        let mut s = State::new(3, 11, 0);
+        s.0[2] = 2;
+        s.0[3] = 0;
+        s.0[11] = 0;
+        s.0[P_BASE + 4] = 0;
+        assert!(!s.legal_actions().contains(&Action([15, 0, 0, 0])));
+    }
+
+    #[test]
+    fn bot_games_produce_spoils() {
+        let mut captives = 0;
+        let mut trophies = 0;
+        let mut games_with_captives = 0;
+        for n in 2..=4 {
+            for seed in 1..=6 {
+                let mut s = State::new(n, seed, seed as usize);
+                while !s.is_over() {
+                    s = s.apply(s.bot_choose());
+                }
+                let c: i64 = (0..n).map(|p| s.captives(p)).sum();
+                let t: i64 = (0..n).map(|p| s.trophies(p)).sum();
+                for p in 0..n {
+                    assert_eq!(
+                        s.ambition_tally(p, 1),
+                        s.captives(p),
+                        "Tyrant must count the captives actually taken"
+                    );
+                }
+                captives += c;
+                trophies += t;
+                if c > 0 {
+                    games_with_captives += 1;
+                }
+            }
+        }
+        assert!(trophies > 0, "bot games fought no battles");
+        assert!(
+            captives > 0,
+            "no bot game destroyed a city ({games_with_captives} of 18)"
+        );
+    }
+
 }
