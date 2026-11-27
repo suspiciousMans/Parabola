@@ -47,7 +47,8 @@ Pick 2 to 4 players, each Human or Bot (hot-seat asks the next human to confirm 
   may secure with Psionic. Corsair (Fuel): each raid key takes two.
 * Lore: after each chapter is scored, the player(s) with the least power gain a Lore token (at most 3). Once
   per turn on your action step, spend one for an extra action of the current suit.
-* After 6 tricks the chapter's declared ambitions score their marker values, then cities pay 1 power each.
+* After 6 tricks the chapter's declared ambitions score their marker values, then Accord and the Seer pay their
+  +1, and the player(s) furthest behind gain Lore. Cities score nothing directly: they let you Tax.
   The game ends when a player reaches the power goal at a chapter end, or after five chapters; most power wins.
 
 The rules are a plain, testable library: `rules/ox/reach.ox` (Oxidized), 21 tests in `rules/ox/tests/`.

@@ -59,9 +59,9 @@ const TUTORIAL: [(&str, &str, &[&str]); 6] = [
     ),
     (
         "6 · SCORE THE CHAPTER",
-        "When the hands are empty the chapter ends. Declared ambitions pay their marker values, then each city pays 1 power.",
+        "When the hands are empty the chapter ends. Declared ambitions pay their marker values; the Accord and the Seer add +1, and whoever is furthest behind gains Lore.",
         &[
-            "After scoring, the next chapter deals new hands and a fresh Court row.",
+            "After scoring, the next chapter deals new hands. The Court row is not refilled.",
             "The board guide (G) labels the ring, Court, played cards, ambitions and power track.",
         ],
     ),
@@ -145,7 +145,7 @@ fn turn(ui: &mut egui::Ui) {
     rule(ui, "ONE TRICK", "The initiative holder leads. They take two actions of the led suit; every other seat follows in turn order and takes one action.");
     rule(ui, "FOLLOWING", "Follow the lead suit when you can. Otherwise pivot with any card and take an action of that card's suit. Surpass and copy keep you in the lead suit.");
     rule(ui, "WINNING THE TRICK", "The highest card of the lead suit takes it: +1 power and the initiative. The cards go to the discard pile.");
-    rule(ui, "AFTER SIX TRICKS", "When every hand is empty the chapter scores, cities pay out, and a new chapter deals fresh hands and a new Court row.");
+    rule(ui, "AFTER SIX TRICKS", "When every hand is empty the chapter scores and a new chapter deals fresh hands. The Court row is not refilled.");
 }
 
 fn actions(ui: &mut egui::Ui) {
@@ -205,7 +205,7 @@ fn court(ui: &mut egui::Ui) {
 
 fn scoring(ui: &mut egui::Ui) {
     rule(ui, "AMBITIONS", "Five scoring cards sit at the right. A seat can declare an ambition; when the chapter ends, the highest tallies for the declared cards receive their marker values.");
-    rule(ui, "CITIES", "After ambitions score, every city pays its owner 1 power.");
+    rule(ui, "CITIES", "Cities score no power on their own: they let you Tax their planet's resource, and a destroyed city gives the attacker a trophy and a captive.");
     rule(ui, "FIVE CHAPTERS", "The game runs up to five chapters. If a player reaches the power goal at a chapter end, the game ends there; otherwise the highest power after chapter five wins.");
     rule(ui, "TROPHIES & CAPTIVES", "Trophies are destroyed enemy pieces. Captives are taken when an enemy city is destroyed in battle. They are public and feed Tyrant and Warlord.");
 }
