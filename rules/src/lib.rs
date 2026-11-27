@@ -43,20 +43,25 @@ fn from_dv(d: Dv) -> Vec<i64> {
 pub const RESOURCES: [&str; 5] = ["Material", "Fuel", "Weapons", "Relics", "Psionic"];
 pub const SUITS: [&str; 4] = ["Administration", "Aggression", "Construction", "Mobilization"];
 pub const AMBITIONS: [&str; 5] = ["Tycoon", "Tyrant", "Warlord", "Keeper", "Empath"];
-/// The ten Court cards (our own designs). Card `id`'s effect is `COURT_EFFECTS[id % 5]`.
+/// The ten Court cards (our own designs). Card `id`'s effect is `COURT_EFFECTS[id]`.
 pub const COURT_CARDS: [&str; 10] = ["Envoy", "Seal", "Writ", "Pact", "Accord", "Herald", "Warden", "Charter", "Oath", "Concord"];
 pub const COURT_NAMES: [&str; 10] = COURT_CARDS;
 /// The resource icon each Court card adds to ambitions (index into `RESOURCES`).
 pub const COURT_ICONS: [usize; 10] = [0, 2, 3, 4, 1, 1, 3, 0, 2, 4];
 /// Agents each player owns.
 pub const AGENTS: i64 = 10;
-/// What each Court effect does for its holder (card id % 5).
-pub const COURT_EFFECTS: [&str; 5] = [
+/// What each Court card does for its holder.
+pub const COURT_EFFECTS: [&str; 10] = [
     "Tax takes one more of that resource",
     "The first building hit in each battle against you is ignored",
     "Repair fixes every damaged piece of yours in the system",
     "The first self hit in each of your attacks is ignored",
     "+1 power at each chapter end",
+    "+1 power each time you secure a Court card",
+    "Rivals who tax your cities capture none of your agents",
+    "Building a city also takes one of its planet's resource",
+    "Influence places one more agent",
+    "Gain a Lore at each chapter end",
 ];
 pub const LEADERS: [&str; 6] = ["Broker", "Admiral", "Architect", "Seer", "Pilgrim", "Corsair"];
 /// Each leader's rule bend, in `LEADERS` order.
@@ -65,7 +70,7 @@ pub const LEADER_EFFECTS: [&str; 6] = [
     "One more ship hit when attacking with any hit",
     "Your builds are never damaged",
     "+1 power at chapter end while holding Psionic",
-    "Influence places two agents",
+    "Influence places one more agent",
     "Each raid key takes two resources",
 ];
 /// Lore tokens a player can hold.
@@ -109,6 +114,7 @@ pub enum Kind {
     Secure,
     Lore,
     Influence,
+    Mulligan,
 }
 
 impl Action {
@@ -132,6 +138,7 @@ impl Action {
             15 => Kind::Secure,
             16 => Kind::Lore,
             17 => Kind::Influence,
+            18 => Kind::Mulligan,
             _ => Kind::Battle,
         }
     }
@@ -181,7 +188,7 @@ impl CourtCard {
         COURT_CARDS[self.0 as usize]
     }
     pub fn effect(self) -> &'static str {
-        COURT_EFFECTS[self.0 as usize % 5]
+        COURT_EFFECTS[self.0 as usize]
     }
     pub fn icon(self) -> usize {
         COURT_ICONS[self.0 as usize]

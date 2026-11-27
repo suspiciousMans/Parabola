@@ -347,7 +347,7 @@ pub fn court_face(id: usize) -> Canvas {
     c.ring(w / 2.0, 128.0, 42.0, 4.0, col, 1.0);
     c.circle(w / 2.0, 128.0, 16.0, col, 1.0);
     c.text(HEAD, 16.0, w / 2.0, 194.0, 1, &RESOURCES[ty].to_uppercase(), col);
-    c.wrap(BODY, 19.0, 24.0, w - 24.0, 232.0, COURT_EFFECTS[id % 5], INK);
+    c.wrap(BODY, 19.0, 24.0, w - 24.0, 232.0, COURT_EFFECTS[id], INK);
     c.text(HEAD, 13.0, w / 2.0, CH as f32 - 22.0, 1, "COURT", scale(BRASS, 0.9));
     c
 }

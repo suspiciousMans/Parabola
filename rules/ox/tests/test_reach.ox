@@ -150,6 +150,7 @@ fn test_court_row_starts_full_from_the_deck() {
 
 fn act_with(s, p, suit, pips) {
     let t = s
+    t[h_mull()] = 0
     t[h_cur()] = p
     t[h_phase()] = 2
     t[h_act_suit()] = suit
@@ -256,6 +257,7 @@ fn test_destroyed_starport_is_only_a_trophy() {
 
 fn act_as(s, p) {
     let t = s
+    t[h_mull()] = 0
     t[h_cur()] = p
     t[h_phase()] = 2
     t[h_acts()] = 0
@@ -282,7 +284,7 @@ fn test_leaders_are_distinct_and_start_with_their_resource() {
                 assert(res(s, p, leader_res(l)) >= 1)
                 for t in range(0, 5) { total = total + res(s, p, t) }
             }
-            for t in range(0, 5) { total = total + supply(s, t) }
+            for t in range(0, 5) { total = total + supply(s, t) + phantom_res(s, t) }
             assert_eq(total, 25)
         }
     }
@@ -466,4 +468,59 @@ fn test_markers_flip_each_chapter() {
     t[h_flips()] = 1
     assert_eq(marker_pair(t, 0)[0], 4)
     assert_eq(marker_pair(t, 2)[0], 5)
+}
+
+// ---- Court effects, two-player rules ------------------------------------
+
+fn test_each_court_card_has_its_own_effect() {
+    let s = new_game(3, 11, 0)
+    let a = give_court(s, 0, court_herald())
+    assert(has_court(a, 0, court_herald()))
+    assert(!has_court(a, 0, court_envoy()))
+    let base = s
+    base[pb(0) + 16] = 0
+    let o = give_court(base, 0, court_oath())
+    let u = apply(act_with(o, 0, 0, 1), [17, 0, 0, 0])
+    assert_eq(agents_on(u, 0, 0), 2)
+    let c = give_court(base, 0, court_concord())
+    let lo = lore(end_chapter(c), 0) - lore(end_chapter(base), 0)
+    assert_eq(lo, 1)
+}
+
+fn test_two_player_mulligan_is_offered_and_swaps_the_hand() {
+    let s = new_game(2, 11, 0)
+    let o = 1 - s[h_init()]
+    assert_eq(s[h_mull()], 1 + o)
+    assert_eq(cur(s), o)
+    assert_eq(len(legal_actions(s)), 2)
+    let keep = apply(s, [18, 0, 0, 0])
+    assert_eq(hand(keep, o), hand(s, o))
+    assert_eq(cur(keep), s[h_init()])
+    let swap = apply(s, [18, 1, 0, 0])
+    assert_eq(len(cards_in_hand(swap, o)), 6)
+    assert(hand(swap, o) != hand(s, o))
+    assert_eq(swap[h_mull()], 0)
+    let three = new_game(3, 11, 0)
+    assert_eq(three[h_mull()], 0)
+}
+
+fn test_phantom_takes_a_place_in_two_player_scoring() {
+    let s = new_game(2, 11, 0)
+    let t = s
+    for p in range(0, 2) {
+        for r in range(0, 5) { t[pb(p) + 1 + r] = 0 }
+        t[pb(p)] = 0
+        t[pb(p) + 6] = 5
+    }
+    let ph = phantom_tally(t, 0)
+    assert(ph > 0)
+    t[h_amb() + 0] = 1
+    t[h_amb_first() + 0] = 5
+    t[h_amb_second() + 0] = 3
+    t[pb(0) + 1] = ph
+    let u = score_ambition(t, 0)
+    assert_eq(power(u, 0), 3)
+    t[pb(0) + 1] = ph + 1
+    let v = score_ambition(t, 0)
+    assert_eq(power(v, 0), 5)
 }

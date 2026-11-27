@@ -163,6 +163,7 @@ const KIND_LABELS = [
   'secure',
   'spend lore',
   'influence',
+  'mulligan',
 ];
 
 /** A short, human label for a legal action, used as the button text. */
@@ -203,6 +204,8 @@ export function actionLabel(action: Action): string {
       return `Secure Court card ${a + 1}`;
     case 17:
       return `Influence Court card ${a + 1}`;
+    case 18:
+      return a === 1 ? 'Mulligan · draw a new hand' : 'Keep this hand';
     case 16:
       return 'Spend Lore · extra action';
     default:
